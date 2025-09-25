@@ -65,7 +65,7 @@ class DataMapper:
                         else:
                             # Clean string values
                             product_data[model_field] = (
-                                str(value).strip if value else None
+                                str(value).strip() if value else None
                             )
 
                 return Product(**product_data)
