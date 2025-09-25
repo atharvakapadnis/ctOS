@@ -1,1 +1,6 @@
 .env
+*.csv
+*.json
+*.db
+*__pycache__*
+*.log
