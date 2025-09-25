@@ -7,9 +7,9 @@ import re
 from typing import Dict, List, Tuple
 from dataclasses import dataclass
 
-from ..core.database import DatabaseManager
-from ..utils.logger import setup_logger
-from ..utils.exceptions import DataValidationError
+from core.database import DatabaseManager
+from utils.logger import setup_logger
+from utils.exceptions import DataValidationError
 
 logger = setup_logger("ctOS.validator")
 

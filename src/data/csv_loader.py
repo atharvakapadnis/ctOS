@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 import uuid
 
-from ..core.database import DatabaseManager
-from ..core.models import Product, ProcessingStatus
-from .data_mapper import DataMapper
-from .data_validator import DataValidator
-from ..utils.logger import setup_logger
-from ..utils.exceptions import CSVLoadError, DataValidationError
+from core.database import DatabaseManager
+from core.models import Product, ProcessingStatus
+from data.data_mapper import DataMapper
+from data.data_validator import DataValidator
+from utils.logger import setup_logger
+from utils.exceptions import CSVLoadError, DataValidationError
 
 logger = setup_logger("ctOS.csv_loader")
 
