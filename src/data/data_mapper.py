@@ -6,9 +6,9 @@ import pandas as pd
 from typing import Dict, List
 from datetime import datetime
 
-from ..core.models import Product
-from ..utils.logger import setup_logger
-from ..utils.exceptions import DataValidationError
+from core.models import Product
+from utils.logger import setup_logger
+from utils.exceptions import DataValidationError
 
 logger = setup_logger("ctOS.mapper")
 

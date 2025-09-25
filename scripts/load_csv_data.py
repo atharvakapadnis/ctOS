@@ -3,6 +3,7 @@ Load CSV data into database for ctOS Service 1
 """
 
 import sys
+import pandas as pd
 from pathlib import Path
 
 # Add src to path
