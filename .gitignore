@@ -1,1 +1,6 @@
 *.env
+*_pycache__
+*.csv
+*.json
+*.log
+*.db
