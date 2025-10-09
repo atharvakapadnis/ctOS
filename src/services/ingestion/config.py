@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS {PROCESSING_TABLE} (
 
 CREATE_INDEXES_SQL = [
     # Product tbale indexes
-    f"CREATE INDEX IF NOT EXISTS idx_prodcuts_final_hts ON {PRODUCTS_TABLE}(final_hts)",
+    f"CREATE INDEX IF NOT EXISTS idx_products_final_hts ON {PRODUCTS_TABLE}(final_hts)",
     f"CREATE INDEX IF NOT EXISTS idx_products_product_group ON {PRODUCTS_TABLE}(product_group)",
     # Processing table indexes
     f"CREATE INDEX IF NOT EXISTS idx_processing_confidence_level ON {PROCESSING_TABLE}(confidence_level)",
