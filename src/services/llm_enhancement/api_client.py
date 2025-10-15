@@ -71,39 +71,36 @@ def exponential_backoff_retry(
                         )
                         time.sleep(delay)
                     else:
-                        logger.error(f"Max retries exceeded after rate limit error")
+                        logger.error(f"Max retries exceeded for rate limit")
                         raise
 
                 except openai.APIError as e:
                     last_exception = e
-                    # Check if its a server error (500-599)
+                    # Check if it's a server error (500-599)
                     if hasattr(e, "status_code") and 500 <= e.status_code < 600:
                         if attempt < max_attempts:
                             delay = base_delay * (
                                 RETRY_EXPONENTIAL_BASE ** (attempt - 1)
                             )
                             logger.warning(
-                                f"API Error on attempt {attempt}/{max_attempts}, retrying in {delay}s..."
+                                f"API error on attempt {attempt}/{max_attempts}, retrying in {delay}s..."
                             )
                             time.sleep(delay)
                         else:
-                            logger.error(f"Max retries exceeded after API error")
+                            logger.error(f"Max retries exceeded for API error")
                             raise
-
                     else:
-                        # Non server error dont retry
+                        # Non-server error, don't retry
                         logger.error(f"Non-retryable API error: {type(e).__name__}")
                         raise
 
                 except (openai.AuthenticationError, openai.BadRequestError) as e:
-                    # Dont retry these errors
-                    logger.error(
-                        f"Non-retryable API error: {type(e).__name__}: {str(e)}"
-                    )
+                    # Don't retry authentication or bad request errors
+                    logger.error(f"Non-retryable error: {type(e).__name__}: {str(e)}")
                     raise
 
                 except Exception as e:
-                    # Catch all unexpected exceptions
+                    # Catch-all for unexpected errors
                     logger.error(f"Unexpected error: {type(e).__name__}: {str(e)}")
                     raise
 
@@ -135,16 +132,16 @@ class OpenAIClient:
         if not self.mock_mode:
             if not self.api_key:
                 raise ValueError(
-                    "OpenAI API key is required. Set OPENAI_API_KEY enviornment variable."
+                    "OpenAI API key is required. Set OPENAI_API_KEY environment variable."
                 )
 
             self.client = OpenAI(api_key=self.api_key)
-            logger.info(f"OpenAI client initialized (model{self.model})")
+            logger.info(f"OpenAI client initialized (model={self.model})")
         else:
             self.client = None
             logger.warning("OpenAI client in MOCK MODE - using mock responses")
 
-    @exponential_backoff_retry()(
+    @exponential_backoff_retry(
         max_attempts=RETRY_MAX_ATTEMPTS, base_delay=RETRY_BASE_DELAY
     )
     def call_api(self, user_prompt: str, system_prompt: str = SYSTEM_PROMPT) -> str:
@@ -181,7 +178,7 @@ class OpenAIClient:
             # Extract response text
             content = response.choices[0].message.content
 
-            logger.debug(f"API response recevied ({len(content)} characters)")
+            logger.debug(f"API response received ({len(content)} characters)")
 
             return content
 
@@ -194,12 +191,12 @@ class OpenAIClient:
         Generate mock response for testing
 
         Args:
-            user_prompt: User prompt (used to extract product information)
+            user_prompt: User prompt (used to extract product info)
 
         Returns:
             Mock JSON response string
         """
-        logger.debug("Generating mock response")
+        logger.debug("Generating MOCK OpenAI response")
 
         # Extract item description from prompt if possible
         import re
@@ -208,7 +205,7 @@ class OpenAIClient:
         original_desc = desc_match.group(1) if desc_match else "Mock Product"
 
         mock_response = {
-            "enhanced_description": f"Enhance mock description based on: {original_desc[:50]}...",
+            "enhanced_description": f"Enhanced mock description based on: {original_desc[:50]}...",
             "confidence_score": "0.75",
             "confidence_level": "Medium",
             "extracted_features": {
@@ -223,13 +220,13 @@ class OpenAIClient:
         return json.dumps(mock_response)
 
 
-# Convenience function for backwawrd compatibility
+# Convenience function for backward compatibility
 @exponential_backoff_retry(max_attempts=RETRY_MAX_ATTEMPTS, base_delay=RETRY_BASE_DELAY)
 def call_openai_api_with_retry(
     user_prompt: str, system_prompt: str = SYSTEM_PROMPT
 ) -> str:
     """
-    Call OpenAI API with retry logic (convinience function)
+    Call OpenAI API with retry logic (convenience function)
 
     Args:
         user_prompt: User prompt string
