@@ -6,7 +6,7 @@ Handles JSON extraction, validation, and flattening for database storage
 import json
 import re
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 from .models import LLMResponse, ExtractedFeatures
 
