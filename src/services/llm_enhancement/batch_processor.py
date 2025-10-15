@@ -106,7 +106,7 @@ class BatchProcessor:
                 )
 
                 # Flatten for database
-                db_update = self.response_parse.flatten_for_database(
+                db_update = self.response_parser.flatten_for_database(
                     validated, product.item_id, rules, pass_number
                 )
 

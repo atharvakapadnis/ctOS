@@ -41,7 +41,7 @@ class PromptBuilder:
         Returns:
             Formatted user prompt string
         """
-        logger.debug(f"Building prompt for product: {product['item_id']}")
+        logger.debug(f"Building prompt for product: {product.item_id}")
 
         # Format HTS Hierarchy section
         hts_section = self._format_hts_hierarchy(hts_context)
@@ -83,10 +83,12 @@ Task: Enhance the product description following the guidelines and JSON format s
         hts_lines = ["HTS Classification Context:"]
 
         for level in hierarchy_path:
-            indent = " " * level.get("indent", 0)
+            # Use the indent value directly from the hierarchy
+            indent_value = level.get("indent", 0)
+            indent_str = " " * indent_value  # 2 spaces per indent level
             code = level.get("code", "")
             description = level.get("description", "")
-            hts_lines.append(f"{indent}[{code}] {description}")
+            hts_lines.append(f"{indent_str}[{code}] {description}")
 
         logger.debug(f"Formatted HTS hierarchy: {len(hierarchy_path)} levels")
         return "\n".join(hts_lines) + "\n"
