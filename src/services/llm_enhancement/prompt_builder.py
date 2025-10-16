@@ -85,7 +85,7 @@ Task: Enhance the product description following the guidelines and JSON format s
         for level in hierarchy_path:
             # Use the indent value directly from the hierarchy
             indent_value = level.get("indent", 0)
-            indent_str = " " * indent_value  # 2 spaces per indent level
+            indent_str = "  " * indent_value  # 2 spaces per indent level
             code = level.get("code", "")
             description = level.get("description", "")
             hts_lines.append(f"{indent_str}[{code}] {description}")
