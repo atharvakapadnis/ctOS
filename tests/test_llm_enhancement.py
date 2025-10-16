@@ -141,11 +141,47 @@ class TestPromptBuilder:
 
         formatted = builder._format_hts_hierarchy(hts_context)
 
-        # Check indentation
+        # Debug: Print the formatted output
+        print("\n=== FORMATTED OUTPUT ===")
+        print(repr(formatted))
+        print("\n=== LINES ===")
+        for i, line in enumerate(formatted.split("\n")):
+            print(f"Line {i}: {repr(line)}")
+
+        # First line shoudl be the header
+        assert "HTS Classification Context:" in formatted
+
+        # Check that all codes are present
+        assert "[73]" in formatted
+        assert "[7307]" in formatted
+        assert "[7307.19]" in formatted
+        assert "[7307.19.30.60]" in formatted
+
+        # Check identation by looking at the actual lines
         lines = formatted.split("\n")
-        assert any("[73]" in line and not line.startswith("  ") for line in lines)
-        assert any("[7307]" in line and line.startswith("  ") for line in lines)
-        assert any("[7307.19]" in line and line.startswith("    ") for line in lines)
+
+        # Find lines with codes and verify indentation
+        for line in lines:
+            if "[73]" in line:
+                # indent 0 - should not start with spaces
+                assert not line.startswith(
+                    " "
+                ), f"Line with [73] should not be indented: {repr(line)}"
+            elif "[7307]" in line:
+                # indent 1 - should start with 2 spaces
+                assert line.startswith("  ") and not line.startswith(
+                    "    "
+                ), f"Line with [7307] should have 2 spaces: {repr(line)}"
+            elif "[7307.19]" in line and "[7307.19.30.60]" not in line:
+                # indent 2 - should start with 4 spaces
+                assert line.startswith("    ") and not line.startswith(
+                    "      "
+                ), f"Line with [7307.19] should have 4 spaces: {repr(line)}"
+            elif "[7307.19.30.60]" in line:
+                # indent 3 - should start with 6 spaces
+                assert line.startswith(
+                    "      "
+                ), f"Line with [7307.19.30.60] should have 6 spaces: {repr(line)}"
 
 
 # ============= TEST RESPONSE PARSER =============
