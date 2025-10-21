@@ -16,6 +16,7 @@ from .config import BATCH_SIZE_DEFAULT, SYSTEM_PROMPT
 
 # Import services 1 and 2
 from ..ingestion.database import ProductDatabase
+from ..ingestion.models import UpdateProcessingInput
 from ..hts_context.service import HTSContextService
 
 logger = logging.getLogger(__name__)
@@ -106,9 +107,12 @@ class BatchProcessor:
                 )
 
                 # Flatten for database
-                db_update = self.response_parser.flatten_for_database(
+                db_update_dict = self.response_parser.flatten_for_database(
                     validated, product.item_id, rules, pass_number
                 )
+
+                # Convert dict to UpdateProcessing input
+                db_update = UpdateProcessingInput(**db_update_dict)
 
                 # Update database (crash sage)
                 update_success = self._update_database(product.item_id, db_update)

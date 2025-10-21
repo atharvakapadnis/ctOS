@@ -197,8 +197,8 @@ def display_batch_control_section():
                             "total_processed": result.total_processed,
                             "successful": result.successful,
                             "failed": result.failed,
-                            "average_time": f"{result.average_time:.2f}s",
-                            "total_time": f"{result.total_time:.2f}s",
+                            "avg_time_per_product": f"{result.avg_time_per_product:.2f}s",
+                            "processing_time": f"{result.processing_time:.2f}s",
                         }
                     )
 
@@ -432,7 +432,7 @@ def display_reprocessing_section():
                                 "total_processed": result.total_processed,
                                 "successful": result.successful,
                                 "failed": result.failed,
-                                "average_time": f"{result.average_time:.2f}s",
+                                "avg_time_per_product": f"{result.avg_time_per_product:.2f}s",
                             }
                         )
 
