@@ -21,7 +21,7 @@ from .components import (
 from .data_loader import (
     get_database_statistics,
     load_unprocessed_products,
-    load_processed_producs,
+    load_processed_products,
     load_products_by_confidence,
     load_all_products,
     clear_cache,

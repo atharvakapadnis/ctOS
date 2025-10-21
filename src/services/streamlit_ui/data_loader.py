@@ -49,7 +49,7 @@ def load_unprocessed_products(limit: int = 500) -> List[ProductWithProcessing]:
 
 
 @st.cache_data(ttl=60)
-def load_processed_producs(limit: int = 500) -> List[ProductWithProcessing]:
+def load_processed_products(limit: int = 500) -> List[ProductWithProcessing]:
     """Load processed products (cached)"""
     db = get_database()
     # Get products weith any confidence level
@@ -80,7 +80,7 @@ def load_all_products(limit: int = 500) -> List[ProductWithProcessing]:
     db = get_database()
 
     # Get all products
-    processed = load_processed_producs(limit // 2)
+    processed = load_processed_products(limit // 2)
     unprocessed = load_unprocessed_products(limit // 2)
 
     return processed + unprocessed
