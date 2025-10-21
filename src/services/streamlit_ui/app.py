@@ -79,17 +79,17 @@ def display_statistics_section():
     display_section_header("Database Statistics")
 
     try:
-        stats = get_database_statistics()
+        stats = get_database_statistics()  # Returns a dict now
 
         # Display main metrics in columns
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            st.metric("Total Products", stats.total_products)
+            st.metric("Total Products", stats["total_products"])
         with col2:
-            st.metric("Processed", stats.processed_count)
+            st.metric("Processed", stats["processed_count"])
         with col3:
-            st.metric("Unprocessed", stats.unprocessed_count)
+            st.metric("Unprocessed", stats["unprocessed_count"])
 
         # Confidence distribution
         st.markdown("### Confidence Distribution")
@@ -97,33 +97,39 @@ def display_statistics_section():
         dist_col1, dist_col2, dist_col3 = st.columns(3)
 
         # Extract values frmo confidence_distribution dictionary
-        confidence_dist = stats.confidence_distribution
+        confidence_dist = stats["confidence_distribution"]
         high_count = confidence_dist.get("High", 0)
         medium_count = confidence_dist.get("Medium", 0)
         low_count = confidence_dist.get("Low", 0)
 
-        total_processed = stats.processed_count if stats.processed_count > 0 else 1
+        total_processed = (
+            stats["processed_count"] if stats["processed_count"] > 0 else 1
+        )
 
         with dist_col1:
             high_pct = (
-                (high_count / total_processed * 100) if stats.processed_count > 0 else 0
+                (high_count / total_processed * 100)
+                if stats["processed_count"] > 0
+                else 0
             )
             st.metric("High", high_count, f"{high_pct:.1f}%")
         with dist_col2:
             medium_pct = (
                 (medium_count / total_processed * 100)
-                if stats.processed_count > 0
+                if stats["processed_count"] > 0
                 else 0
             )
             st.metric("Medium", medium_count, f"{medium_pct:.1f}%")
         with dist_col3:
             low_pct = (
-                (low_count / total_processed * 100) if stats.processed_count > 0 else 0
+                (low_count / total_processed * 100)
+                if stats["processed_count"] > 0
+                else 0
             )
             st.metric("Low", low_count, f"{low_pct:.1f}%")
 
         # Unique HTS codes
-        st.metric("Unique HTS Codes", stats.unique_hts_codes)
+        st.metric("Unique HTS Codes", stats["unique_hts_codes"])
 
         # Refresh button
         if st.button("Refresh Statistics"):

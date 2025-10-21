@@ -23,9 +23,21 @@ def get_database():
 
 @st.cache_data(ttl=10)
 def get_database_statistics():
-    """Get database statistics with caching"""
+    """Get database statistics (cached with 10s TTL)"""
     db = get_database()
-    return db.get_database_statistics()
+    stats = db.get_database_statistics()
+
+    # Conver to Pydantic model to dict for pickle serialization
+    return {
+        "total_products": stats.total_products,
+        "processed_count": stats.processed_count,
+        "unprocessed_count": stats.unprocessed_count,
+        "confidence_distribution": stats.confidence_distribution,
+        "average_confidence_score": stats.average_confidence_score,
+        "unique_hts_codes": stats.unique_hts_codes,
+        "pass_distribution": stats.pass_distribution,
+        "timestamp": stats.timestamp,
+    }
 
 
 @st.cache_data(ttl=60)
