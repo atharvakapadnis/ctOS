@@ -530,7 +530,7 @@ def display_reprocessing_section():
                         result = process_batch(
                             batch_size=len(st.session_state.selected_items),
                             pass_number=2,
-                            selected_item_ids=list(st.st.session_state.selected_items),
+                            selected_item_ids=list(st.session_state.selected_items),
                             selected_rule_ids=st.session_state.get(
                                 "selected_rule_ids", []
                             ),
