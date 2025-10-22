@@ -31,36 +31,46 @@ class PromptBuilder:
         rules: Optional[List[Dict]] = None,
     ) -> str:
         """
-        Build user prompt for a product
+        Build user prompt for LLM
 
         Args:
-            product: Product record from Service 1
-            hts_context: HTS hierarchy context from Service 2
-            rules: List of rules to apply (Pass 2+ only)
+            product: Product object with description and metadata
+            hts_context: Optional HTS hierarchy context
+            rules: Optional list of rules to apply
 
         Returns:
             Formatted user prompt string
         """
-        logger.debug(f"Building prompt for product: {product.item_id}")
+        prompt_parts = []
 
-        # Format HTS Hierarchy section
-        hts_section = self._format_hts_hierarchy(hts_context)
+        # Product description
+        prompt_parts.append(f"Original Description: {product.item_description}")
 
-        # Format rules section
-        rules_section = self._format_rules(rules)
+        # Additional context
+        if product.material_detail:
+            prompt_parts.append(f"Material Detail: {product.material_detail}")
 
-        # Build complete prompt
-        prompt = f"""Product Information:
-- Original Description: {product.item_description}
-- Material: {product.material_detail or 'N/A'}
-- Product Group: {product.product_group or 'N/A'}
-- HTS Code: {product.final_hts}
+        if product.product_group:
+            prompt_parts.append(f"Product Group: {product.product_group}")
 
-{hts_section}{rules_section}
-Task: Enhance the product description following the guidelines and JSON format specified in the system prompt."""
+        # HTS Context
+        if hts_context and hts_context.get("found"):
+            hierarchy_text = self._format_hts_hierarchy(
+                hts_context.get("hierarchy_path", [])
+            )
+            if hierarchy_text:
+                prompt_parts.append(f"\nHTS Classification Context:\n{hierarchy_text}")
 
-        logger.debug(f"Prompt build: {len(prompt)} characters")
-        return prompt
+        # RUles
+        if rules:
+            from src.services.rules import RuleManager
+
+            rule_manager = RuleManager()
+            rules_text = rule_manager.format_rules_for_prompt(rules)
+            if rules_text:
+                prompt_parts.append(f"\n{rules_text}")
+
+        return "\n\n".join(prompt_parts)
 
     def _format_hts_hierarchy(self, hts_context: Optional[Dict]) -> str:
         """
