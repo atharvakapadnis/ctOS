@@ -23,7 +23,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 ALLOWED_RULE_TYPES = ["material", "dimension", "customer", "product", "general"]
 
 # Rule ID Pattern
-RULE_ID_PATTERN = rf"^R\d{3,}$"
+RULE_ID_PATTERN = r"^R\d{3,}$"
 
 # Logging Configuration
 LOG_FILE = LOG_DIR / "rules.log"
