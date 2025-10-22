@@ -45,28 +45,28 @@ class Rule(BaseModel):
 
 
 class RuleSet(BaseModel):
-    """Collection of Rules with metadata"""
+    """Collection of rules with metadata"""
 
     rules: List[Rule]
     metadata: Optional[Dict[str, Any]] = None
 
 
 class ValidationResult(BaseModel):
-    """Result of validating a single rule"""
+    """Validation result for a single rule"""
 
     valid: bool
     rule_id: Optional[str] = None
-    errors = List[str] = []
-    warnings = List[str] = []
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
 
 
 class ValidationReport(BaseModel):
-    """Report of validating a rule set"""
+    """Report for validating entire rule set"""
 
     valid: bool
     total_rules: int
     valid_rules: int
     invalid_rules: int
-    errors: List[str] = []
-    warnings: List[str] = []
-    duplicate_ids: List[str] = []
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    duplicate_ids: List[str] = Field(default_factory=list)

@@ -1,5 +1,5 @@
 """
-Rule validation logic for rules management service
+Rule validation logic for Rules Management Service
 """
 
 import re
@@ -43,21 +43,25 @@ class RuleValidator:
 
         # Validate field types
         if "rule_id" in rule and not isinstance(rule["rule_id"], str):
-            errors.append(f"rule_id must be a string, got: {type(rule['rule_id'])}")
+            errors.append(f"rule_id must be string, got {type(rule['rule_id'])}")
+
         if "rule_name" in rule and not isinstance(rule["rule_name"], str):
-            errors.append(f"rule_name must be a string, got: {type(rule['rule_name'])}")
+            errors.append(f"rule_name must be string, got {type(rule['rule_name'])}")
+
         if "rule_content" in rule and not isinstance(rule["rule_content"], str):
             errors.append(
-                f"rule_content must be a string, got: {type(rule['rule_content'])}"
+                f"rule_content must be string, got {type(rule['rule_content'])}"
             )
-        if "rule_type" in rule and not isinstance(rule["rule_type"], str):
-            errors.append(f"rule_type must be a string, got: {type(rule['rule_type'])}")
-        if "active" in rule and not isinstance(rule["active"], bool):
-            errors.append(f"active must be a boolean, got: {type(rule['active'])}")
 
-        # Validate rule_id pattern
+        if "rule_type" in rule and not isinstance(rule["rule_type"], str):
+            errors.append(f"rule_type must be string, got {type(rule['rule_type'])}")
+
+        if "active" in rule and not isinstance(rule["active"], bool):
+            errors.append(f"active must be boolean, got {type(rule['active'])}")
+
+        # Validate rule_id format
         if "rule_id" in rule and isinstance(rule["rule_id"], str):
-            if not self.validate_rule_id(rule["rule_id"]):
+            if not self.validate_rule_id_format(rule["rule_id"]):
                 errors.append(f"rule_id must match pattern {RULE_ID_PATTERN}")
 
         # Validate rule_type
@@ -74,18 +78,18 @@ class RuleValidator:
             if not rule["rule_content"].strip():
                 errors.append("rule_content cannot be empty")
 
-        # Check Optional fields
+        # Check optional fields
         if "created_at" not in rule:
-            warnings.append("Optional field, 'created_at' not provided")
+            warnings.append("Optional field 'created_at' not provided")
 
         if "description" not in rule:
-            warnings.append("Optional field, 'description' not provided")
+            warnings.append("Optional field 'description' not provided")
 
         return ValidationResult(
             valid=len(errors) == 0, rule_id=rule_id, errors=errors, warnings=warnings
         )
 
-    def validate_rule_set(self, rules: Dict) -> ValidationReport:
+    def validate_rule_set(self, rules: List[Dict]) -> ValidationReport:
         """
         Validate entire rule set
 
@@ -115,7 +119,7 @@ class RuleValidator:
                 all_warnings.append(f"Rule {result.rule_id}: {warning}")
 
         # Check for duplicate IDs
-        is_unique, duplicate_ids = self.check_duplicate_ids(rules)
+        is_unique, duplicate_ids = self.check_unique_ids(rules)
         if not is_unique:
             all_errors.append(f"Duplicate rule IDs found: {duplicate_ids}")
 
@@ -137,7 +141,7 @@ class RuleValidator:
             rules: List of rule dictionaries
 
         Returns:
-            Tuple of (is_unique, duplicate_ids)
+            Tuple of (is_unique, list_of_duplicates)
         """
         rule_ids = [rule.get("rule_id") for rule in rules if "rule_id" in rule]
         duplicates = []
@@ -147,11 +151,10 @@ class RuleValidator:
             if rule_id in seen:
                 if rule_id not in duplicates:
                     duplicates.append(rule_id)
-
             else:
                 seen.add(rule_id)
 
-        return len(duplicates) == 0, duplicates
+        return (len(duplicates) == 0, duplicates)
 
     def validate_rule_id_format(self, rule_id: str) -> bool:
         """
@@ -161,18 +164,18 @@ class RuleValidator:
             rule_id: Rule ID string
 
         Returns:
-            True if matches pattern, False otherwise
+            True if valid format
         """
         return bool(re.match(RULE_ID_PATTERN, rule_id))
 
     def validate_rule_type(self, rule_type: str) -> bool:
         """
-        Check rule_type is allowed
+        Check if rule_type is in allowed list
 
         Args:
             rule_type: Rule type string
 
         Returns:
-            True if allowed, False otherwise
+            True if valid type
         """
         return rule_type in ALLOWED_RULE_TYPES

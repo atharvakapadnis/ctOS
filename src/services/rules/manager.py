@@ -196,6 +196,7 @@ class RuleManager:
         filtered_rules.sort(key=lambda r: r.rule_id)
 
         logger.debug(f"Returning {len(filtered_rules)} rules of type '{rule_type}'")
+        return filtered_rules
 
     def get_all_rule_types(self) -> List[str]:
         """
@@ -301,15 +302,15 @@ class RuleManager:
             rule_type = rule.rule_type
             rules_by_type[rule_type] = rules_by_type.get(rule_type, 0) + 1
 
-            stats = {
-                "total_rules": len(all_rules),
-                "active_rules": len(active_rules),
-                "inactive_rules": len(inactive_rules),
-                "rules_by_type": rules_by_type,
-            }
+        stats = {
+            "total_rules": len(all_rules),
+            "active_rules": len(active_rules),
+            "inactive_rules": len(inactive_rules),
+            "rules_by_type": rules_by_type,
+        }
 
-            logger.debug(f"Statistics: {stats}")
-            return stats
+        logger.debug(f"Statistics: {stats}")
+        return stats
 
     def format_rules_for_prompt(self, rules: List[Rule]) -> str:
         """
