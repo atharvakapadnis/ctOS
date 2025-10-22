@@ -58,6 +58,9 @@ def main():
     # Section 3: Product Data View
     display_product_view_section()
 
+    # Section 3.5: Rules Management
+    display_rules_section()
+
     # Section 4: Reprocessing
     display_reprocessing_section()
 
@@ -321,6 +324,67 @@ def display_product_view_section():
         st.exception(e)
 
 
+def display_rules_section():
+    """Display available rules (read only)"""
+    st.markdown("---")
+    st.header("Rules Management")
+    st.caption("View and manage rules for Pass 2+ reprocessing")
+
+    try:
+        from src.services.rules import RuleManager
+
+        rule_manager = RuleManager()
+        rules = rule_manager.load_rules()
+        stats = rule_manager.get_rules_statistics()
+
+        # Display statistis
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Rules", stats["total_rules"])
+        with col2:
+            st.metric("Active Rules", stats["active_rules"])
+        with col3:
+            st.metric("Inactive Rules", stats["inactive_rules"])
+
+        # Display rules table
+        st.markdown("### Available Rules")
+
+        if rules:
+            display_data = []
+            for rule in rules:
+                display_data.append(
+                    {
+                        "Rule ID": rule.rule_id,
+                        "Name": rule.rule_name,
+                        "Type": rule.rule_type.title(),
+                        "Content": (
+                            rule.rule_content[:80] + "..."
+                            if len(rule.rule_content) > 80
+                            else rule.rule_content
+                        ),
+                        "Status": "Active" if rule.active else "Inactive",
+                        "Description": rule.description or "N/A",
+                    }
+                )
+            st.dataframe(display_data, width="stretch", height=300)
+        else:
+            st.warning("No rules found")
+
+        # Instructuing for editing
+        st.info("Rules are stored in rules.json. Edit to add or modify rules.")
+
+        # Reload button
+        if st.button("Reload Rules from File"):
+            rule_manager.reload_rules()
+            st.success("Rules reloaded successfully")
+            st.rerun()
+
+    except Exception as e:
+        st.error(f"Error loading rules: {str(e)}")
+        with st.expander("Error Details"):
+            st.exception(e)
+
+
 def display_reprocessing_section():
     """Display Pass 2+ reprocessing"""
     display_section_header("Pass 2+ Reprocessing")
@@ -388,71 +452,114 @@ def display_reprocessing_section():
                 f"**Selected: {len(st.session_state.selected_items)} products**"
             )
 
+            # Step 2.5: Selecting rules to apply
+            st.markdown("### Step 2.5: Selecting rules to apply")
+
+            try:
+                from src.services.rules import RuleManager
+
+                rule_manager = RuleManager()
+                available_rules = rule_manager.get_active_rules()
+
+                if available_rules:
+                    st.info(f"{len(available_rules)} active rules available")
+
+                    # Initialize session state for rule selection
+                    if "selected_rule_ids" not in st.session_state:
+                        st.session_state.selected_rule_ids = []
+
+                        # Select/ Deselect All buttons
+                        col1, col2 = st.columns(2)
+                        if col1.button("Select All Rules"):
+                            st.session_state.selected_rule_ids = [
+                                r.rule_id for r in available_rules
+                            ]
+                            st.rerun()
+                        if col2.button("Deselect All Rules"):
+                            st.session_state.selected_rule_ids = []
+                            st.rerun()
+
+                        # Rule checkboxes
+                        selected_rule_ids = []
+                        for rule in available_rules:
+                            is_selected = st.checkbox(
+                                f"**{rule.rule_id}** - {rule.rule_name} ({rule.rule_type})",
+                                value=rule.rule_id
+                                in st.session_state.selected_rule_ids,
+                                key=f"rule_{rule.rule_id}",
+                                help=rule.rule_content,
+                            )
+
+                            if is_selected:
+                                selected_rule_ids.append(rule.rule_id)
+
+                        # Update session state
+                        st.session_state.selected_rule_ids = selected_rule_ids
+
+                        st.markdown(f"**Selected: {len(selected_rule_ids)} rules**")
+
+                else:
+                    st.warning("No active rules available")
+                    selected_rule_ids = []
+
+            except Exception as e:
+                st.error(f"Error loading rules: {str(e)}")
+                selected_rule_ids = []
+
             # Step 3: Reprocess selected items
             st.markdown("### Step 3: Reprocess selected items")
 
-            pass_number = st.number_input(
-                "Pass Number",
-                min_value=2,
-                max_value=10,
-                value=2,
-                help="Pass number for this reprocessing run",
+            if (
+                "selected_items" not in st.session_state
+                or len(st.session_state.selected_items) == 0
+            ):
+                st.warning("No items selected. Please select items in Step 2 above")
+                return
+
+            st.info(
+                f"Ready to reprocess {len(st.session_state.selected_items)} items with {len(st.session_state.get('selected_rule_ids', []))} rules"
             )
 
-            reprocess_batch_size = st.slider(
-                "Batch Size",
-                min_value=MIN_BATCH_SIZE,
-                max_value=MAX_BATCH_SIZE,
-                value=50,
-            )
-
-            st.info("Note: Rules will be applied when Service 4 is implemented")
-
+            # Reprocess button
             if st.button("Reprocess Selected Items", type="primary"):
-                if not st.session_state.selected_items:
-                    st.error("No items selected for reprocessing")
-                else:
-                    progress_bar = st.progress(0, text="Starting reprocessing...")
-                    status_container = st.empty()
-
+                with st.spinner("Reprocessing items..."):
                     try:
-                        status_container.info(
-                            f"Reprocessing {len(st.session_state.selected_items)} items (Pass {pass_number})..."
-                        )
+                        from src.services.llm_enhancement.service import process_batch
 
-                        # Call Service 3 with selected items
+                        # Call service 3 with selected rules
                         result = process_batch(
-                            batch_size=reprocess_batch_size,
-                            pass_number=pass_number,
-                            selected_item_ids=list(st.session_state.selected_items),
+                            batch_size=len(st.session_state.selected_items),
+                            pass_number=2,
+                            selected_item_ids=list(st.st.session_state.selected_items),
+                            selected_rule_ids=st.session_state.get(
+                                "selected_rule_ids", []
+                            ),
                         )
 
-                        progress_bar.progress(1.0, text="Reprocessing complete!")
+                        # Display results
+                        st.success("Reprocessing complete")
 
-                        status_container.success(
-                            f"Reprocessing complete: {result.successful} successful, {result.failed} failed"
-                        )
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total Processed", result.total_processed)
+                        with col2:
+                            st.metric("Successful", result.successful)
+                        with col3:
+                            st.metric("Failed", result.failed)
 
-                        st.json(
-                            {
-                                "total_processed": result.total_processed,
-                                "successful": result.successful,
-                                "failed": result.failed,
-                                "avg_time_per_product": f"{result.avg_time_per_product:.2f}s",
-                            }
-                        )
-
-                        # Clear selections after processing
+                        # Clear selection
                         st.session_state.selected_items = set()
+                        st.session_state.selected_rule_ids = []
 
-                        # Clear cache to show updated data
-                        clear_cache()
-
-                        st.rerun()
+                        st.info(
+                            "Items reprocessed. Refresh the product view to see updated data."
+                        )
 
                     except Exception as e:
-                        status_container.error(f"Reprocessing failed: {str(e)}")
-                        st.exception(e)
+                        st.error(f"Reprocessing failed: {str(e)}")
+                        with st.expander("Error Details"):
+                            st.exception(e)
+
         else:
             st.warning(
                 "No products available for reprocessing with selected confidence levels."
