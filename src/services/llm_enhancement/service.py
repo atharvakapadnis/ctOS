@@ -99,6 +99,7 @@ class LLMEnhancementService:
         batch_size: int = BATCH_SIZE_DEFAULT,
         pass_number: int = 1,
         selected_item_ids: Optional[List[str]] = None,
+        selected_rule_ids: Optional[List[str]] = None,
     ) -> BatchResult:
         """
         Process a batch of products
@@ -107,13 +108,18 @@ class LLMEnhancementService:
             batch_size: Number of products to process
             pass_number: Pass number (1 for initial, 2+ for reprocessing)
             selected_item_ids: For Pass 2+, specific items to reprocess
+            selected_rule_ids: Rule IDs to apply for Pass 2+
 
         Returns:
             BatchResult with statistics and results
 
         Example:
             >>> service = LLMEnhancementService()
-            >>> result = service.process_batch(batch_size=10, pass_number=1)
+            >>> result = service.process_batch(
+            ...     batch_size=10,
+            ...     pass_number=2,
+            ...     selected_rule_ids=["R001", "R003"]
+            ... )
             >>> print(f"Processed: {result.successful}/{result.total_processed}")
         """
         logger.info(f"Processing batch: size={batch_size}, pass={pass_number}")
@@ -122,6 +128,7 @@ class LLMEnhancementService:
             batch_size=batch_size,
             pass_number=pass_number,
             selected_item_ids=selected_item_ids,
+            selected_rule_ids=selected_rule_ids,
         )
 
     def run_pass_1(
@@ -213,7 +220,10 @@ class LLMEnhancementService:
         return summary
 
     def run_pass_2(
-        self, selected_item_ids: List[str], batch_size: int = BATCH_SIZE_DEFAULT
+        self,
+        selected_item_ids: List[str],
+        batch_size: int = BATCH_SIZE_DEFAULT,
+        selected_rule_ids: Optional[List[str]] = None,
     ) -> BatchResult:
         """
         Run Pass 2+: Reprocess selected products with rules
@@ -221,6 +231,7 @@ class LLMEnhancementService:
         Args:
             selected_item_ids: List of item IDs to reprocess
             batch_size: Maximum batch size
+            selected_rule_ids: Rule IDs to apply for Pass 2+
 
         Returns:
             BatchResult with statistics
@@ -228,13 +239,19 @@ class LLMEnhancementService:
         Example:
             >>> service = LLMEnhancementService()
             >>> low_confidence_ids = ["ITEM001", "ITEM002", "ITEM003"]
-            >>> result = service.run_pass_2(low_confidence_ids)
+            >>> result = service.run_pass_2(
+            ...     selected_item_ids,
+            ...     selected_rule_ids=["R001", "R002"]
+            ... )
             >>> print(f"Reprocessed: {result.successful}/{result.total_processed}")
         """
         logger.info(f"Starting Pass 2: {len(selected_item_ids)} items selected")
 
         return self.batch_processor.process_batch(
-            batch_size=batch_size, pass_number=2, selected_item_ids=selected_item_ids
+            batch_size=batch_size,
+            pass_number=2,
+            selected_item_ids=selected_item_ids,
+            selected_rule_ids=selected_rule_ids,
         )
 
     def get_processing_statistics(self) -> Dict[str, Any]:

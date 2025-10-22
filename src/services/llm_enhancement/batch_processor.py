@@ -53,6 +53,7 @@ class BatchProcessor:
         batch_size: int = BATCH_SIZE_DEFAULT,
         pass_number: int = 1,
         selected_item_ids: Optional[List[str]] = None,
+        selected_rule_ids: Optional[List[str]] = None,
     ) -> BatchResult:
         """
         Process a batch of products through LLM enhancement
@@ -61,7 +62,7 @@ class BatchProcessor:
             batch_size: Number of products to process per batch
             pass_number: Current pass number
             selected_item_ids: Optional list of specific item IDs to process
-
+            selected_rule_ids: Optional list of specific rule IDs to apply
         Returns:
             BatchResult containing processing statistics and results
         """
@@ -75,7 +76,7 @@ class BatchProcessor:
             return self._create_empty_batch_result(pass_number, batch_size)
 
         # Step 2: Load Rules only for Pass 2+
-        rules = self._load_rules(pass_number)
+        rules = self._load_rules(pass_number, selected_rule_ids)
 
         # Step 3: Process each product
         results = []
@@ -194,16 +195,45 @@ class BatchProcessor:
             logger.info(f"Loaded {len(products)} selected products for reprocessing")
             return products
 
-    def _load_rules(self, pass_number: int) -> List[Dict]:
-        """Load rules for Pass 2+"""
+    def _load_rules(
+        self, pass_number: int, selected_rule_ids: Optional[List[str]] = None
+    ) -> List:
+        """
+        Load rules for LLM Prompt
+
+        Args:
+            pass_number: Current pass number
+            selected_rule_ids: List of rule IDs to apply frmo UI selection
+
+        Returns:
+            List of Rule objects
+        """
         if pass_number == 1:
             logger.info("Pass 1: No rules loaded")
             return []
 
-        # TODO: Integrate with Service 4 (Rules) when available
-        # For now return empty list
-        logger.warning("Service 4 (Rules) not yet integrated, returning empty rules")
-        return []
+        try:
+            from src.services.rules import RuleManager
+
+            rule_manager = RuleManager()
+
+            if selected_rule_ids:
+                # Load only user selected rules (from checkbox selection)
+                rules = rule_manager.get_rules_by_ids(selected_rule_ids)
+                logger.info(
+                    f"Pass {pass_number}: Loaded {len(rules)} selected rules: {selected_rule_ids}"
+                )
+
+            else:
+                # Fallback: Load all active rules (if no selection provided)
+                rules = rule_manager.get_active_rules()
+                logger.info(f"Pass {pass_number}: Loaded {len(rules)} active rules")
+
+            return rules
+
+        except Exception as e:
+            logger.error(f"Failed to load rules: {e}")
+            return []
 
     def _get_hts_context(self, product: Any) -> Optional[Dict]:
         """Get HTS context for a product"""
@@ -244,6 +274,7 @@ def process_batch(
     batch_size: int = BATCH_SIZE_DEFAULT,
     pass_number: int = 1,
     selected_item_ids: Optional[List[str]] = None,
+    selected_rule_ids: Optional[List[str]] = None,
 ) -> BatchResult:
     """
     Convenience function for processing a batch
@@ -252,12 +283,14 @@ def process_batch(
         batch_size: Number of products to process per batch
         pass_number: Current pass number (1 for initial, 2+ for reprocessing)
         selected_item_ids: For Pass 2+ to process specific items
-
+        selected_rule_ids: For Pass 2+ to apply specific rules
     Returns:
         BatchResult containing processing statistics and results
     """
     processor = BatchProcessor()
-    return processor.process_batch(batch_size, pass_number, selected_item_ids)
+    return processor.process_batch(
+        batch_size, pass_number, selected_item_ids, selected_rule_ids
+    )
 
 
 def resume_pass_1(batch_size: int = BATCH_SIZE_DEFAULT) -> Dict[str, Any]:
