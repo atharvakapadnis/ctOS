@@ -409,6 +409,7 @@ def process_batch(
     batch_size: int = BATCH_SIZE_DEFAULT,
     pass_number: int = 1,
     selected_item_ids: Optional[List[str]] = None,
+    selected_rule_ids: Optional[List[str]] = None,
 ) -> BatchResult:
     """
     Convenience function to process a batch without initializing service
@@ -421,4 +422,4 @@ def process_batch(
     Returns:
         BatchResult with statistics and results
     """
-    return batch_process(batch_size, pass_number, selected_item_ids)
+    return batch_process(batch_size, pass_number, selected_item_ids, selected_rule_ids)

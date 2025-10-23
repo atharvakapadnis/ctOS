@@ -469,34 +469,33 @@ def display_reprocessing_section():
                         st.session_state.selected_rule_ids = []
 
                         # Select/ Deselect All buttons
-                        col1, col2 = st.columns(2)
-                        if col1.button("Select All Rules"):
-                            st.session_state.selected_rule_ids = [
-                                r.rule_id for r in available_rules
-                            ]
-                            st.rerun()
-                        if col2.button("Deselect All Rules"):
-                            st.session_state.selected_rule_ids = []
-                            st.rerun()
+                    col1, col2 = st.columns(2)
+                    if col1.button("Select All Rules"):
+                        st.session_state.selected_rule_ids = [
+                            r.rule_id for r in available_rules
+                        ]
+                        st.rerun()
+                    if col2.button("Deselect All Rules"):
+                        st.session_state.selected_rule_ids = []
+                        st.rerun()
 
-                        # Rule checkboxes
-                        selected_rule_ids = []
-                        for rule in available_rules:
-                            is_selected = st.checkbox(
-                                f"**{rule.rule_id}** - {rule.rule_name} ({rule.rule_type})",
-                                value=rule.rule_id
-                                in st.session_state.selected_rule_ids,
-                                key=f"rule_{rule.rule_id}",
-                                help=rule.rule_content,
-                            )
+                    # Rule checkboxes
+                    selected_rule_ids = []
+                    for rule in available_rules:
+                        is_selected = st.checkbox(
+                            f"**{rule.rule_id}** - {rule.rule_name} ({rule.rule_type})",
+                            value=rule.rule_id in st.session_state.selected_rule_ids,
+                            key=f"rule_{rule.rule_id}",
+                            help=rule.rule_content,
+                        )
 
-                            if is_selected:
-                                selected_rule_ids.append(rule.rule_id)
+                        if is_selected:
+                            selected_rule_ids.append(rule.rule_id)
 
-                        # Update session state
-                        st.session_state.selected_rule_ids = selected_rule_ids
+                    # Update session state
+                    st.session_state.selected_rule_ids = selected_rule_ids
 
-                        st.markdown(f"**Selected: {len(selected_rule_ids)} rules**")
+                    st.markdown(f"**Selected: {len(selected_rule_ids)} rules**")
 
                 else:
                     st.warning("No active rules available")
