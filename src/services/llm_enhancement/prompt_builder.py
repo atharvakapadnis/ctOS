@@ -6,8 +6,6 @@ Builds system and user prompts with HTS context and rules
 import logging
 from typing import Dict, List, Optional, Any
 
-from pydantic.types import AnyItemType
-
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +26,8 @@ class PromptBuilder:
         self,
         product: Any,
         hts_context: Optional[Dict] = None,
-        rules: Optional[List[Dict]] = None,
+        # rules: Optional[List[Dict]] = None,
+        rules: Optional[List] = None,
     ) -> str:
         """
         Build user prompt for LLM
@@ -61,39 +60,57 @@ class PromptBuilder:
             if hierarchy_text:
                 prompt_parts.append(f"\nHTS Classification Context:\n{hierarchy_text}")
 
-        # RUles
+        # Rules
         if rules:
-            from src.services.rules import RuleManager
-
-            rule_manager = RuleManager()
-            rules_text = rule_manager.format_rules_for_prompt(rules)
+            rules_text = self._format_rules_from_objects(rules)
             if rules_text:
                 prompt_parts.append(f"\n{rules_text}")
 
         return "\n\n".join(prompt_parts)
 
-    def _format_hts_hierarchy(self, hts_context: Optional[Dict]) -> str:
+    def _format_rules_from_objects(self, rules: List) -> str:
         """
-        Format HTS hierarchy context for prompt
+        Format rules from objects for prompt
 
         Args:
-            hts_context: HTS hierarchy context from Service 2
+            rules: List of rule objects
+
+        Returns:
+            Formatted rules section string
+        """
+        if not rules:
+            logger.debug("No rules provided")
+            return ""
+
+        rules_lines = ["Rules to Apply:"]
+
+        for rule in rules:
+            # Access rule object attributes diectly
+            rule_id = rule.rule_id
+            rule_content = rule.rule_content
+            rules_lines.append(f"- [{rule_id}] {rule_content}")
+
+        logger.debug(f"Formatted {len(rules)} rules")
+        return "\n".join(rules_lines)
+
+    def _format_hts_hierarchy(self, hierarchy_path: List[Dict]) -> str:
+        """
+        Format HTS hierarchy path for prompt
+
+        Args:
+            hierarchy_path: List of hierarchy level dictionaries
 
         Returns:
             Formatted HTS hierarchy section string
         """
-        if not hts_context or not hts_context.get("hierarchy_path"):
-            logger.debug("No HTS context provided")
-            return ""
-
-        hierarchy_path = hts_context.get("hierarchy_path", [])
         if not hierarchy_path:
+            logger.debug("No HTS hierarchy path provided")
             return ""
 
-        hts_lines = ["HTS Classification Context:"]
+        hts_lines = ["HTS Classification Context"]
 
         for level in hierarchy_path:
-            # Use the indent value directly from the hierarchy
+            # Each levle is a dictionary with 'indent', 'code', 'description'
             indent_value = level.get("indent", 0)
             indent_str = "  " * indent_value  # 2 spaces per indent level
             code = level.get("code", "")
@@ -101,7 +118,7 @@ class PromptBuilder:
             hts_lines.append(f"{indent_str}[{code}] {description}")
 
         logger.debug(f"Formatted HTS hierarchy: {len(hierarchy_path)} levels")
-        return "\n".join(hts_lines) + "\n"
+        return "\n".join(hts_lines)
 
     def _format_rules(self, rules: Optional[List[Dict]]) -> str:
         """
