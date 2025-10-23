@@ -166,7 +166,7 @@ class ResponseParser:
         return parsed
 
     def flatten_for_database(
-        self, parsed: dict, item_id: str, rules_applied: List[Dict], pass_number: int
+        self, parsed: dict, item_id: str, rules_applied: List, pass_number: int
     ) -> dict:
         """
         Flatten nested LLM response for database storage
@@ -182,6 +182,16 @@ class ResponseParser:
         """
         logger.debug(f"Flattening response for database: {item_id}")
 
+        # Exctract rule IDs from Rule objects
+        rule_ids = []
+        if rules_applied:
+            for rule in rules_applied:
+                # Check if its a rule object or a dict
+                if hasattr(rule, "rule_id"):
+                    rule_ids.append(rule.rule_id)
+                elif isinstance(rule, dict):
+                    rule_ids.append(rule.get("rule_id", rule.get("id", "")))
+
         flattened = {
             "enhanced_description": parsed["enhanced_description"],
             "confidence_score": parsed["confidence_score"],
@@ -191,14 +201,32 @@ class ResponseParser:
             ),
             "extracted_dimensions": parsed["extracted_features"].get("dimensions"),
             "extracted_product": parsed["extracted_features"]["product"],
-            "rules_applied": json.dumps(
-                [r.get("rule_id", r.get("id", "")) for r in rules_applied]
-            ),
+            "rules_applied": json.dumps(rule_ids),
             "pass_number": str(pass_number),
         }
 
         logger.debug(f"Flattened {len(flattened)} fields for {item_id}")
         return flattened
+
+        # logger.debug(f"Flattening response for database: {item_id}")
+
+        # flattened = {
+        #     "enhanced_description": parsed["enhanced_description"],
+        #     "confidence_score": parsed["confidence_score"],
+        #     "confidence_level": parsed["confidence_level"],
+        #     "extracted_customer_name": parsed["extracted_features"].get(
+        #         "customer_name"
+        #     ),
+        #     "extracted_dimensions": parsed["extracted_features"].get("dimensions"),
+        #     "extracted_product": parsed["extracted_features"]["product"],
+        #     "rules_applied": json.dumps(
+        #         [r.get("rule_id", r.get("id", "")) for r in rules_applied]
+        #     ),
+        #     "pass_number": str(pass_number),
+        # }
+
+        # logger.debug(f"Flattened {len(flattened)} fields for {item_id}")
+        # return flattened
 
     def calculate_fallback_confidence(
         self,
