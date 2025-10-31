@@ -5,7 +5,7 @@ Main Streamlit Application Logic
 import streamlit as st
 import sys
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 # Add src to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -75,6 +75,22 @@ def initialize_session_state():
 
     if "last_batch_result" not in st.session_state:
         st.session_state.last_batch_result = None
+
+    # Rules CRUD session state
+    if "selected_rule_ids" not in st.session_state:
+        st.session_state.selected_rule_ids = set()
+
+    if "show_create_form" not in st.session_state:
+        st.session_state.show_create_form = False
+
+    if "show_edit_form" not in st.session_state:
+        st.session_state.show_edit_form = False
+
+    if "editing_rule_id" not in st.session_state:
+        st.session_state.editing_rule_id = None
+
+    if "form_data" not in st.session_state:
+        st.session_state.form_data = {}
 
 
 def display_statistics_section():
@@ -325,19 +341,37 @@ def display_product_view_section():
 
 
 def display_rules_section():
-    """Display available rules (read only)"""
+    """Display rules management with CRUD operations"""
     st.markdown("---")
     st.header("Rules Management")
-    st.caption("View and manage rules for Pass 2+ reprocessing")
+    st.caption("Create, view, edit, and delete rules for Pass 2+ reprocessing")
+
+    # Initialize variables before try block
+    rules = []
+    stats = {"total_rules": 0, "active_rules": 0, "inactive_rules": 0}
 
     try:
         from src.services.rules import RuleManager
 
         rule_manager = RuleManager()
+
+        # Initialize session state for rules CRUD
+        if "selected_rule_ids" not in st.session_state:
+            st.session_state.selected_rule_ids = set()
+        if "show_create_form" not in st.session_state:
+            st.session_state.show_create_form = False
+        if "show_edit_form" not in st.session_state:
+            st.session_state.show_edit_form = False
+        if "editing_rule_id" not in st.session_state:
+            st.session_state.editing_rule_id = None
+        if "form_data" not in st.session_state:
+            st.session_state.form_data = {}
+
+        # Load rules and stats
         rules = rule_manager.load_rules()
         stats = rule_manager.get_rules_statistics()
 
-        # Display statistis
+        # A. Statistics Row
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Total Rules", stats["total_rules"])
@@ -346,10 +380,24 @@ def display_rules_section():
         with col3:
             st.metric("Inactive Rules", stats["inactive_rules"])
 
-        # Display rules table
-        st.markdown("### Available Rules")
+        # B. Action Buttons Row
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Create New Rule", width="stretch"):
+                st.session_state.show_create_form = True
+                st.session_state.show_edit_form = False
+                st.rerun()
+        with col2:
+            if st.button("Reload from File", width="stretch"):
+                rule_manager.reload_rules()
+                st.success("Rules reloaded successfully")
+                st.rerun()
+
+        # C. Rules Table with Selection
+        st.markdown("### Rules")
 
         if rules:
+            # Create display data
             display_data = []
             for rule in rules:
                 display_data.append(
@@ -358,31 +406,337 @@ def display_rules_section():
                         "Name": rule.rule_name,
                         "Type": rule.rule_type.title(),
                         "Content": (
-                            rule.rule_content[:80] + "..."
-                            if len(rule.rule_content) > 80
+                            rule.rule_content[:60] + "..."
+                            if len(rule.rule_content) > 60
                             else rule.rule_content
                         ),
                         "Status": "Active" if rule.active else "Inactive",
-                        "Description": rule.description or "N/A",
+                        "Created": rule.created_at[:10] if rule.created_at else "N/A",
                     }
                 )
+
+            # Display dataframe with checkboxes
             st.dataframe(display_data, width="stretch", height=300)
+
+            # Selection checkboxes below table
+            st.markdown("#### Select Rules for Actions")
+            for rule in rules:
+                is_selected = st.checkbox(
+                    f"{rule.rule_id} - {rule.rule_name}",
+                    value=rule.rule_id in st.session_state.selected_rule_ids,
+                    key=f"select_rule_{rule.rule_id}",
+                )
+
+                if is_selected:
+                    st.session_state.selected_rule_ids.add(rule.rule_id)
+                else:
+                    st.session_state.selected_rule_ids.discard(rule.rule_id)
         else:
             st.warning("No rules found")
 
-        # Instructuing for editing
-        st.info("Rules are stored in rules.json. Edit to add or modify rules.")
+        # D. Bulk Actions Row
+        selected_count = len(st.session_state.selected_rule_ids)
+        if selected_count > 0:
+            st.markdown(f"**Selected: {selected_count} rule(s)**")
 
-        # Reload button
-        if st.button("Reload Rules from File"):
-            rule_manager.reload_rules()
-            st.success("Rules reloaded successfully")
-            st.rerun()
+            col1, col2, col3 = st.columns([2, 2, 6])
+
+            with col1:
+                if st.button("Delete Selected", width="stretch", type="primary"):
+                    st.session_state.confirm_delete_pending = True
+
+            with col2:
+                if st.button("Clear Selection", width="stretch"):
+                    st.session_state.selected_rule_ids = set()
+                    st.rerun()
+
+            # Delete confirmation
+            if st.session_state.get("confirm_delete_pending", False):
+                st.warning(f"Are you sure you want to delete {selected_count} rule(s)?")
+                st.markdown("**Rules to be deleted:**")
+                for rule_id in st.session_state.selected_rule_ids:
+                    st.markdown(f"- {rule_id}")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("Confirm Delete", width="stretch"):
+                        result = rule_manager.delete_rules(
+                            list(st.session_state.selected_rule_ids)
+                        )
+                        if result["success"]:
+                            st.success(result["message"])
+                            if result["not_found"]:
+                                st.warning(
+                                    f"Not found: {', '.join(result['not_found'])}"
+                                )
+                        else:
+                            st.error(result["message"])
+
+                        st.session_state.selected_rule_ids = set()
+                        st.session_state.confirm_delete_pending = False
+                        st.rerun()
+
+                with col2:
+                    if st.button("Cancel", width="stretch"):
+                        st.session_state.confirm_delete_pending = False
+                        st.rerun()
+
+        # E. Single Rule Actions
+        if selected_count == 1:
+            selected_id = list(st.session_state.selected_rule_ids)[0]
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("Edit Rule", width="stretch"):
+                    st.session_state.show_edit_form = True
+                    st.session_state.show_create_form = False
+                    st.session_state.editing_rule_id = selected_id
+                    st.rerun()
+
+            with col2:
+                if st.button("Toggle Status", width="stretch"):
+                    success, message, new_status = rule_manager.toggle_rule_status(
+                        selected_id
+                    )
+                    if success:
+                        status_text = "ACTIVE" if new_status else "INACTIVE"
+                        st.success(f"{message}")
+                        st.session_state.selected_rule_ids = set()
+                        st.rerun()
+                    else:
+                        st.error(message)
+
+        # F. Create Form
+        if st.session_state.show_create_form:
+            st.markdown("---")
+            st.markdown("### Create New Rule")
+
+            with st.form("create_rule_form"):
+                suggested_id = rule_manager.get_next_rule_id()
+
+                rule_id = st.text_input(
+                    "Rule ID",
+                    value=suggested_id,
+                    help="Auto-suggested. Change only if needed. Format: R###",
+                )
+
+                rule_name = st.text_input(
+                    "Rule Name", placeholder="e.g., Ductile Iron Abbreviation"
+                )
+
+                rule_type = st.selectbox(
+                    "Rule Type",
+                    ["material", "dimension", "customer", "product", "general"],
+                )
+
+                rule_content = st.text_area(
+                    "Rule Content",
+                    placeholder="Enter the rule guidance for the LLM...",
+                    height=100,
+                )
+
+                description = st.text_input(
+                    "Description (Optional)",
+                    placeholder="Brief description of what this rule does",
+                )
+
+                active = st.checkbox(
+                    "Active (rule will be available for selection)", value=True
+                )
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    submit = st.form_submit_button(
+                        "Create Rule", width="stretch", type="primary"
+                    )
+
+                with col2:
+                    cancel = st.form_submit_button("Cancel", width="stretch")
+
+                if cancel:
+                    st.session_state.show_create_form = False
+                    st.rerun()
+
+                if submit:
+                    from datetime import datetime, timezone
+
+                    new_rule = {
+                        "rule_id": rule_id.strip(),
+                        "rule_name": rule_name.strip(),
+                        "rule_content": rule_content.strip(),
+                        "rule_type": rule_type,
+                        "active": active,
+                        "description": description.strip() if description else None,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }
+
+                    success, message, created_rule = rule_manager.add_rule(new_rule)
+
+                    if success:
+                        st.success(message)
+                        st.session_state.show_create_form = False
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to create rule: {message}")
+
+        # G. Edit Form
+        if st.session_state.show_edit_form and st.session_state.editing_rule_id:
+            st.markdown("---")
+            st.markdown(f"### Edit Rule: {st.session_state.editing_rule_id}")
+
+            existing_rule = rule_manager.get_rule_for_edit(
+                st.session_state.editing_rule_id
+            )
+
+            if existing_rule:
+                with st.form("edit_rule_form"):
+                    st.text_input(
+                        "Rule ID (Read-only)",
+                        value=existing_rule["rule_id"],
+                        disabled=True,
+                    )
+
+                    rule_name = st.text_input(
+                        "Rule Name", value=existing_rule["rule_name"]
+                    )
+
+                    rule_type = st.selectbox(
+                        "Rule Type",
+                        ["material", "dimension", "customer", "product", "general"],
+                        index=[
+                            "material",
+                            "dimension",
+                            "customer",
+                            "product",
+                            "general",
+                        ].index(existing_rule["rule_type"]),
+                    )
+
+                    rule_content = st.text_area(
+                        "Rule Content", value=existing_rule["rule_content"], height=100
+                    )
+
+                    description = st.text_input(
+                        "Description (Optional)",
+                        value=existing_rule.get("description", "") or "",
+                    )
+
+                    active = st.checkbox(
+                        "Active (rule will be available for selection)",
+                        value=existing_rule["active"],
+                    )
+
+                    st.info(f"Created: {existing_rule.get('created_at', 'Unknown')}")
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        submit = st.form_submit_button(
+                            "Save Changes", width="stretch", type="primary"
+                        )
+
+                    with col2:
+                        cancel = st.form_submit_button("Cancel", width="stretch")
+
+                    if cancel:
+                        st.session_state.show_edit_form = False
+                        st.session_state.editing_rule_id = None
+                        st.session_state.selected_rule_ids = set()
+                        st.rerun()
+
+                    if submit:
+                        updated_fields = {
+                            "rule_name": rule_name.strip(),
+                            "rule_content": rule_content.strip(),
+                            "rule_type": rule_type,
+                            "active": active,
+                            "description": description.strip() if description else None,
+                        }
+
+                        success, message, updated_rule = rule_manager.update_rule(
+                            st.session_state.editing_rule_id, updated_fields
+                        )
+
+                        if success:
+                            st.success(message)
+                            st.session_state.show_edit_form = False
+                            st.session_state.editing_rule_id = None
+                            st.session_state.selected_rule_ids = set()
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to update rule: {message}")
+            else:
+                st.error(f"Rule {st.session_state.editing_rule_id} not found")
+                st.session_state.show_edit_form = False
+                st.session_state.editing_rule_id = None
 
     except Exception as e:
-        st.error(f"Error loading rules: {str(e)}")
+        st.error(f"Error in rules management: {str(e)}")
         with st.expander("Error Details"):
             st.exception(e)
+
+
+# def display_rules_section():
+#     """Display available rules (read only)"""
+#     st.markdown("---")
+#     st.header("Rules Management")
+#     st.caption("View and manage rules for Pass 2+ reprocessing")
+
+#     try:
+#         from src.services.rules import RuleManager
+
+#         rule_manager = RuleManager()
+#         rules = rule_manager.load_rules()
+#         stats = rule_manager.get_rules_statistics()
+
+#         # Display statistis
+#         col1, col2, col3 = st.columns(3)
+#         with col1:
+#             st.metric("Total Rules", stats["total_rules"])
+#         with col2:
+#             st.metric("Active Rules", stats["active_rules"])
+#         with col3:
+#             st.metric("Inactive Rules", stats["inactive_rules"])
+
+#         # Display rules table
+#         st.markdown("### Available Rules")
+
+#         if rules:
+#             display_data = []
+#             for rule in rules:
+#                 display_data.append(
+#                     {
+#                         "Rule ID": rule.rule_id,
+#                         "Name": rule.rule_name,
+#                         "Type": rule.rule_type.title(),
+#                         "Content": (
+#                             rule.rule_content[:80] + "..."
+#                             if len(rule.rule_content) > 80
+#                             else rule.rule_content
+#                         ),
+#                         "Status": "Active" if rule.active else "Inactive",
+#                         "Description": rule.description or "N/A",
+#                     }
+#                 )
+#             st.dataframe(display_data, width="stretch", height=300)
+#         else:
+#             st.warning("No rules found")
+
+#         # Instructuing for editing
+#         st.info("Rules are stored in rules.json. Edit to add or modify rules.")
+
+#         # Reload button
+#         if st.button("Reload Rules from File"):
+#             rule_manager.reload_rules()
+#             st.success("Rules reloaded successfully")
+#             st.rerun()
+
+#     except Exception as e:
+#         st.error(f"Error loading rules: {str(e)}")
+#         with st.expander("Error Details"):
+#             st.exception(e)
 
 
 def display_reprocessing_section():
@@ -466,21 +820,29 @@ def display_reprocessing_section():
 
                     # Initialize session state for rule selection
                     if "selected_rule_ids" not in st.session_state:
-                        st.session_state.selected_rule_ids = []
+                        st.session_state.selected_rule_ids = set()
 
-                        # Select/ Deselect All buttons
+                    # Select/ Deselect All buttons
                     col1, col2 = st.columns(2)
                     if col1.button("Select All Rules"):
-                        st.session_state.selected_rule_ids = [
+                        st.session_state.selected_rule_ids = set(
                             r.rule_id for r in available_rules
-                        ]
+                        )
                         st.rerun()
                     if col2.button("Deselect All Rules"):
-                        st.session_state.selected_rule_ids = []
+                        st.session_state.selected_rule_ids = set()
                         st.rerun()
+                    # if col1.button("Select All Rules"):
+                    #     st.session_state.selected_rule_ids = [
+                    #         r.rule_id for r in available_rules
+                    #     ]
+                    #     st.rerun()
+                    # if col2.button("Deselect All Rules"):
+                    #     st.session_state.selected_rule_ids = []
+                    #     st.rerun()
 
                     # Rule checkboxes
-                    selected_rule_ids = []
+                    # selected_rule_ids = []
                     for rule in available_rules:
                         is_selected = st.checkbox(
                             f"**{rule.rule_id}** - {rule.rule_name} ({rule.rule_type})",
@@ -491,9 +853,8 @@ def display_reprocessing_section():
 
                         if is_selected:
                             selected_rule_ids.append(rule.rule_id)
-
-                    # Update session state
-                    st.session_state.selected_rule_ids = selected_rule_ids
+                        else:
+                            st.session_state.selected_rule_ids.discard(rule.rule_id)
 
                     st.markdown(f"**Selected: {len(selected_rule_ids)} rules**")
 

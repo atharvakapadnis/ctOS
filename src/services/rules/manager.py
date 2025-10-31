@@ -2,14 +2,22 @@
 Rule manager - CRUD operations for Rule management Service
 """
 
+import re
 import json
 import logging
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
 
 from .models import Rule, RuleSet, ValidationReport
 from .validator import RuleValidator
-from .config import RULES_FILE, LOG_FILE, LOG_FORMAT, LOG_DATE_FORMAT
+from .config import (
+    RULES_FILE,
+    LOG_FILE,
+    LOG_FORMAT,
+    LOG_DATE_FORMAT,
+    RULE_ID_PATTERN,
+    ALLOWED_RULE_TYPES,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -332,3 +340,477 @@ class RuleManager:
         formatted_text = "\n".join(formatted_lines)
         logger.debug(f"Formatted {len(rules)} rules for prompt")
         return formatted_text
+
+    def get_next_rule_id(self) -> str:
+        """
+        Generare next available rule ID
+
+        Returns:
+            Next available rule ID in format R###
+        """
+        all_rules = self.load_rules()
+        if not all_rules:
+            logger.info("No rules found, starting with R001")
+            return "R001"
+
+        # Extract numeric parts and find max
+        max_id = 0
+        for rule in all_rules:
+            try:
+                numeric_part = int(rule.rule_id[1:])
+                max_id = max(max_id, numeric_part)
+            except (ValueError, IndexError):
+                logger.warning(f"Invalid rule ID format: {rule.rule_id}")
+                continue
+
+        next_id = f"R{str(max_id + 1).zfill(3)}"
+        logger.info(f"Next available rule ID: {next_id}")
+        return next_id
+
+    def validate_rule_for_save(
+        self, rule_dict: Dict, rule_id_to_update: Optional[str] = None
+    ) -> Tuple[bool, List[str]]:
+        """
+        Comprehensice validation before any save operation
+
+        Args:
+            rule_dict: Dictionary containing rule data
+            rule_id_to_update: Optional rule ID to update (for duplicate check)
+
+        Returns:
+            Tuple of (is_valid, list_of_errors)
+        """
+        errors = []
+
+        # Check required fields
+        required_fields = [
+            "rule_id",
+            "rule_name",
+            "rule_content",
+            "rule_type",
+            "active",
+        ]
+        for field in required_fields:
+            if field not in rule_dict:
+                errors.append(f"Missing required field: {field}")
+
+        if errors:
+            return False, errors
+
+        # Validate field types
+        if not isinstance(rule_dict["rule_id"], str):
+            errors.append("rule_id must be string")
+        if not isinstance(rule_dict["rule_name"], str):
+            errors.append("rule_name must be string")
+        if not isinstance(rule_dict["rule_content"], str):
+            errors.append("rule_content must be string")
+        if not isinstance(rule_dict["rule_type"], str):
+            errors.append("rule_type must be string")
+        if not isinstance(rule_dict["active"], bool):
+            errors.append("active must be boolean")
+
+        # Validate rule_id format
+        if isinstance(rule_dict["rule_id"], str):
+            if not re.match(RULE_ID_PATTERN, rule_dict["rule_id"]):
+                errors.append(
+                    f"rule_id must match pattern R###: {rule_dict['rule_id']}"
+                )
+
+        # Check rule_id uniqueness
+        if isinstance(rule_dict["rule_id"], str):
+            existing_rule = self.get_rule_by_id(rule_dict["rule_id"])
+            if existing_rule:
+                if rule_id_to_update is None:
+                    errors.append(f"rule_id {rule_dict['rule_id']} already exists")
+                elif rule_id_to_update != rule_dict["rule_id"]:
+                    errors.append(
+                        f"Cannot change rule_id from {rule_id_to_update} to {rule_dict['rule_id']}"
+                    )
+
+        # Validate rule_type
+        if rule_dict.get("rule_type") not in ALLOWED_RULE_TYPES:
+            errors.append(f"rule_type must be one of {ALLOWED_RULE_TYPES}")
+
+        # Validate non-empty strings
+        if not rule_dict.get("rule_name", "").strip():
+            errors.append("rule_name cannot be empty")
+        if not rule_dict.get("rule_content", "").strip():
+            errors.append("rule_content cannot be empty")
+
+        is_valid = len(errors) == 0
+        return is_valid, errors
+
+    def add_rule(self, rule_dict: Dict) -> Tuple[bool, str, Optional[Rule]]:
+        """
+        Add new rule to rules.json file
+
+        Args:
+            rule_dict: Dictionary with rule fields
+
+        Returns:
+            Tuple of (success: bool, message: str, created_rule: Optional[Rule])
+        """
+        logger.info(f"Attempting to add rule: {rule_dict.get('rule_id', 'NO_ID')}")
+
+        # Validate before save
+        is_valid, errors = self.validate_rule_for_save(rule_dict)
+        if not is_valid:
+            error_msg = "; ".join(errors)
+            logger.error(f"Validation failed: {error_msg}")
+            return False, error_msg, None
+
+        try:
+            # Add created_at timestamp if not provided
+            if "created_at" not in rule_dict or not rule_dict["created_at"]:
+                from datetime import datetime, timezone
+
+                rule_dict["created_at"] = datetime.now(timezone.utc).isoformat()
+
+            # Validate using Pydantic model
+            new_rule = Rule(**rule_dict)
+
+            # Load current rules.json
+            if not self.rules_file.exists():
+                data = {
+                    "rules": [],
+                    "metadata": {
+                        "version": "1.0",
+                        "last_updated": "",
+                        "total_rules": 0,
+                        "active_rules": 0,
+                    },
+                }
+            else:
+                with open(self.rules_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+            # Append new rule
+            data["rules"].append(rule_dict)
+
+            # Update metadata
+            from datetime import datetime, timezone
+
+            data["metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+            data["metadata"]["total_rules"] = len(data["rules"])
+            data["metadata"]["active_rules"] = sum(
+                1 for r in data["rules"] if r.get("active", False)
+            )
+
+            # Save back to file
+            with open(self.rules_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # Reload cache
+            self._cache_loaded = False
+            self.load_rules()
+
+            logger.info(f"Successfully added rule {new_rule.rule_id}")
+            return True, f"Rule {new_rule.rule_id} created successfully", new_rule
+
+        except ValueError as e:
+            logger.error(f"Validation error: {e}")
+            return False, f"Validation error: {str(e)}", None
+        except Exception as e:
+            logger.error(f"Error adding rule: {e}")
+            return False, f"Error adding rule: {str(e)}", None
+
+    def get_rule_for_edit(self, rule_id: str) -> Optional[Dict]:
+        """
+        Get rule as dictionary suitable for pre-filling edit form
+
+        Args:
+            rule_id: Rule ID to retrieve
+
+        Returns:
+            Dictionary with rule data or None if not found
+        """
+        rule = self.get_rule_by_id(rule_id)
+        if not rule:
+            logger.warning(f"Rule {rule_id} not found for editing")
+            return None
+
+        # Convert Rule model to dictionary
+        rule_dict = {
+            "rule_id": rule.rule_id,
+            "rule_name": rule.rule_name,
+            "rule_content": rule.rule_content,
+            "rule_type": rule.rule_type,
+            "active": rule.active,
+            "created_at": rule.created_at,
+            "description": rule.description,
+        }
+
+        logger.debug(f"Retrieved rule {rule_id} for editing")
+        return rule_dict
+
+    def update_rule(
+        self, rule_id: str, updated_fields: Dict
+    ) -> Tuple[bool, str, Optional[Rule]]:
+        """
+        Update existing rule in rules.json
+
+        Args:
+            rule_id: Rule ID to update
+            updated_fields: Dictionary of fields to update
+
+        Returns:
+            Tuple of (success: bool, message: str, updated_rule: Optional[Rule])
+        """
+        logger.info(f"Attempting to update rule: {rule_id}")
+
+        # Check rule exists
+        existing_rule = self.get_rule_by_id(rule_id)
+        if not existing_rule:
+            logger.error(f"Rule {rule_id} not found")
+            return False, f"Rule {rule_id} not found", None
+
+        try:
+            # Load current rules.json
+            with open(self.rules_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Find rule by rule_id
+            rule_index = None
+            for i, rule in enumerate(data["rules"]):
+                if rule["rule_id"] == rule_id:
+                    rule_index = i
+                    break
+
+            if rule_index is None:
+                return False, f"Rule {rule_id} not found in file", None
+
+            # Merge updated fields with existing rule (preserve created_at)
+            merged_rule = data["rules"][rule_index].copy()
+            merged_rule.update(updated_fields)
+
+            # Ensure created_at is preserved
+            if "created_at" not in merged_rule:
+                merged_rule["created_at"] = existing_rule.created_at
+
+            # Ensure rule_id cannot change
+            merged_rule["rule_id"] = rule_id
+
+            # Validate merged rule
+            is_valid, errors = self.validate_rule_for_save(
+                merged_rule, rule_id_to_update=rule_id
+            )
+            if not is_valid:
+                error_msg = "; ".join(errors)
+                logger.error(f"Validation failed: {error_msg}")
+                return False, error_msg, None
+
+            # Validate using Pydantic model
+            updated_rule = Rule(**merged_rule)
+
+            # Replace rule in array
+            data["rules"][rule_index] = merged_rule
+
+            # Update metadata
+            from datetime import datetime, timezone
+
+            data["metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+            data["metadata"]["active_rules"] = sum(
+                1 for r in data["rules"] if r.get("active", False)
+            )
+
+            # Save back to file
+            with open(self.rules_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # Reload cache
+            self._cache_loaded = False
+            self.load_rules()
+
+            logger.info(f"Successfully updated rule {rule_id}")
+            return True, f"Rule {rule_id} updated successfully", updated_rule
+
+        except ValueError as e:
+            logger.error(f"Validation error: {e}")
+            return False, f"Validation error: {str(e)}", None
+        except Exception as e:
+            logger.error(f"Error updating rule: {e}")
+            return False, f"Error updating rule: {str(e)}", None
+
+    def delete_rule(self, rule_id: str) -> Tuple[bool, str]:
+        """
+        Remove single rule from rules.json
+
+        Args:
+            rule_id: Rule ID to delete
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        logger.info(f"Attempting to delete rule: {rule_id}")
+
+        # Check rule exists
+        existing_rule = self.get_rule_by_id(rule_id)
+        if not existing_rule:
+            logger.error(f"Rule {rule_id} not found")
+            return False, f"Rule {rule_id} not found"
+
+        try:
+            # Load current rules.json
+            with open(self.rules_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Filter out rule with matching rule_id
+            original_count = len(data["rules"])
+            data["rules"] = [r for r in data["rules"] if r["rule_id"] != rule_id]
+
+            # Check if any rules were actually removed
+            if len(data["rules"]) == original_count:
+                return False, f"Rule {rule_id} not found in file"
+
+            # Update metadata
+            from datetime import datetime, timezone
+
+            data["metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+            data["metadata"]["total_rules"] = len(data["rules"])
+            data["metadata"]["active_rules"] = sum(
+                1 for r in data["rules"] if r.get("active", False)
+            )
+
+            # Save back to file
+            with open(self.rules_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # Reload cache
+            self._cache_loaded = False
+            self.load_rules()
+
+            logger.info(f"Successfully deleted rule {rule_id}")
+            return True, f"Rule {rule_id} deleted successfully"
+
+        except Exception as e:
+            logger.error(f"Error deleting rule: {e}")
+            return False, f"Error deleting rule: {str(e)}"
+
+    def delete_rules(self, rule_ids: List[str]) -> Dict[str, Any]:
+        """
+        Remove multiple rules in one operation
+
+        Args:
+            rule_ids: List of rule IDs to delete
+
+        Returns:
+            Dictionary with results
+        """
+        logger.info(f"Attempting to delete {len(rule_ids)} rules")
+
+        try:
+            # Load current rules.json
+            with open(self.rules_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Track which IDs were actually found and deleted
+            original_ids = {r["rule_id"] for r in data["rules"]}
+            deleted_ids = []
+            not_found_ids = []
+
+            for rule_id in rule_ids:
+                if rule_id in original_ids:
+                    deleted_ids.append(rule_id)
+                else:
+                    not_found_ids.append(rule_id)
+
+            # Filter out all rules with IDs in list
+            data["rules"] = [r for r in data["rules"] if r["rule_id"] not in rule_ids]
+
+            # Update metadata
+            from datetime import datetime, timezone
+
+            data["metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+            data["metadata"]["total_rules"] = len(data["rules"])
+            data["metadata"]["active_rules"] = sum(
+                1 for r in data["rules"] if r.get("active", False)
+            )
+
+            # Save back to file
+            with open(self.rules_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # Reload cache
+            self._cache_loaded = False
+            self.load_rules()
+
+            result = {
+                "deleted_count": len(deleted_ids),
+                "not_found": not_found_ids,
+                "success": True,
+                "message": f"Successfully deleted {len(deleted_ids)} rule(s)",
+            }
+
+            logger.info(
+                f"Batch delete complete: {len(deleted_ids)} deleted, {len(not_found_ids)} not found"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Error in batch delete: {e}")
+            return {
+                "deleted_count": 0,
+                "not_found": rule_ids,
+                "success": False,
+                "message": f"Error deleting rules: {str(e)}",
+            }
+
+    def toggle_rule_status(self, rule_id: str) -> Tuple[bool, str, bool]:
+        """
+        Flip active status of a rule
+
+        Args:
+            rule_id: Rule ID to toggle
+
+        Returns:
+            Tuple of (success: bool, message: str, new_status: bool)
+        """
+        logger.info(f"Attempting to toggle status for rule: {rule_id}")
+
+        # Check rule exists
+        existing_rule = self.get_rule_by_id(rule_id)
+        if not existing_rule:
+            logger.error(f"Rule {rule_id} not found")
+            return False, f"Rule {rule_id} not found", False
+
+        try:
+            # Load current rules.json
+            with open(self.rules_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            # Find rule and flip active status
+            rule_found = False
+            new_status = False
+            for rule in data["rules"]:
+                if rule["rule_id"] == rule_id:
+                    rule["active"] = not rule.get("active", False)
+                    new_status = rule["active"]
+                    rule_found = True
+                    break
+
+            if not rule_found:
+                return False, f"Rule {rule_id} not found in file", False
+
+            # Update metadata
+            from datetime import datetime, timezone
+
+            data["metadata"]["last_updated"] = datetime.now(timezone.utc).isoformat()
+            data["metadata"]["active_rules"] = sum(
+                1 for r in data["rules"] if r.get("active", False)
+            )
+
+            # Save back to file
+            with open(self.rules_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            # Reload cache
+            self._cache_loaded = False
+            self.load_rules()
+
+            status_text = "ACTIVE" if new_status else "INACTIVE"
+            logger.info(f"Successfully toggled rule {rule_id} to {status_text}")
+            return True, f"Rule {rule_id} is now {status_text}", new_status
+
+        except Exception as e:
+            logger.error(f"Error toggling rule status: {e}")
+            return False, f"Error toggling status: {str(e)}", False
