@@ -102,25 +102,19 @@ class LLMEnhancementService:
         selected_rule_ids: Optional[List[str]] = None,
     ) -> BatchResult:
         """
-        Process a batch of products
+            Process a batch of products
 
         Args:
             batch_size: Number of products to process
             pass_number: Pass number (1 for initial, 2+ for reprocessing)
-            selected_item_ids: For Pass 2+, specific items to reprocess
-            selected_rule_ids: Rule IDs to apply for Pass 2+
+            selected_item_ids: Optional list of specific item IDs to process.
+                - Pass 1: If None, processes all unprocessed products (Mode A).
+                        If provided, processes specific selected products (Mode B).
+                - Pass 2+: Required. Specifies which products to reprocess.
+            selected_rule_ids: Optional list of rule IDs to apply (Pass 2+ only)
 
         Returns:
-            BatchResult with statistics and results
-
-        Example:
-            >>> service = LLMEnhancementService()
-            >>> result = service.process_batch(
-            ...     batch_size=10,
-            ...     pass_number=2,
-            ...     selected_rule_ids=["R001", "R003"]
-            ... )
-            >>> print(f"Processed: {result.successful}/{result.total_processed}")
+            BatchResult with processing statistics
         """
         logger.info(f"Processing batch: size={batch_size}, pass={pass_number}")
 

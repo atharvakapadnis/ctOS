@@ -254,6 +254,66 @@ class ProductDatabase:
 
         return [ProductWithProcessing(**dict(row)) for row in rows]
 
+    def get_products_by_ids(self, item_ids: List[str]) -> List[ProductWithProcessing]:
+        """
+        Retrieve multiple products by their IDs with processing results
+
+        Args:
+            item_ids: List of product identifiers
+
+        Returns:
+            List of ProductWithProcessing objects (only found products)
+        """
+
+        if not item_ids:
+            logger.warning("get_products_by_ids called with empty item_ids list")
+            return []
+
+        logger.warning(f"Retrieving {len(item_ids)} products by IDs")
+
+        # Create placeholders for SQL IN clause
+        placeholders = ", ".join(["?"] * len(item_ids))
+
+        query = f"""
+            SELECT 
+                p.*,
+                pr.enhanced_description,
+                pr.confidence_score,
+                pr.confidence_level,
+                pr.extracted_customer_name,
+                pr.extracted_dimensions,
+                pr.extracted_product,
+                pr.rules_applied,
+                pr.last_processed_pass,
+                pr.last_processed_at
+            FROM {self.products_table} p
+            LEFT JOIN {self.processing_table} pr ON p.item_id = pr.item_id
+            WHERE p.item_id IN ({placeholders})
+        """
+
+        start_time = datetime.now()
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, item_ids)
+            rows = cursor.fetchall()
+
+        execution_time = (datetime.now() - start_time).total_seconds()
+        logger.debug(
+            f"Query executed in {execution_time:.4f} seconds, "
+            f"requested {len(item_ids)}, found {len(rows)} products"
+        )
+
+        # Log if some products not found
+        if len(rows) < len(item_ids):
+            found_ids = {row["item_id"] for row in rows}
+            missing_ids = set(item_ids) - found_ids
+            logger.warning(
+                f"{len(missing_ids)} products not found in database: {list(missing_ids)[:5]}..."
+            )
+
+        return [ProductWithProcessing(**dict(row)) for row in rows]
+
     def get_products_by_confidence(
         self, confidence_level: str
     ) -> List[ProductWithProcessing]:
