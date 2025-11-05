@@ -176,24 +176,82 @@ class BatchProcessor:
     def _load_products(
         self, batch_size: int, pass_number: int, selected_item_ids: Optional[List[str]]
     ) -> List[Any]:
-        """Load products based on pass number"""
-        if pass_number == 1:
-            # Pass 1: Get unprocessed products
-            products = self.db.get_unprocessed_products(limit=batch_size)
-            logger.info(f"Loaded {len(products)} unprocessed products")
-            return products
-        else:
-            # Pass 2+: Get selected products by ID
-            if not selected_item_ids:
-                raise ValueError("Pass 2+ requires selected_item_ids")
+        """
+        Load products based on pass number and selection mode
 
-            products = []
-            for item_id in selected_item_ids[:batch_size]:
-                product = self.db.get_product_by_id(item_id)
-                if product:
-                    products.append(product)
-            logger.info(f"Loaded {len(products)} selected products for reprocessing")
+        Pass 1 has two modes:
+        - Mode A: selected_item_ids is None, load all unprocessed products
+        - Mode B: selected_item_ids is not None, load selected products by ID
+
+        Pass 2+: Always use selected_item_ids to reprocess specific items
+        """
+        if pass_number == 1:
+            if selected_item_ids is None:
+                # Pass 1: Mode A : Process all unprocessed products
+                logger.info(f"Pass 1 Mode A: Loading {batch_size} unprocessed products")
+                products = self.db.get_unprocessed_products(limit=batch_size)
+                logger.info(f"Loaded {len(products)} unprocessed products")
+                return products
+            else:
+                # Pass 1: Mode B: Process specific selected products
+                logger.info(
+                    f"Pass 1 Mode B: Loading {len(selected_item_ids)} selected products"
+                )
+
+                # Validate selected products exists and are unprocessed
+                products = self.db.get_products_by_ids(selected_item_ids)
+
+                # Check whihc ones are already processed
+                already_processed = [
+                    p for p in products if p.enhanced_description is not None
+                ]
+                if already_processed:
+                    logger.warning(
+                        f"{len(already_processed)} of {len(products)} selected products "
+                        f"are already processed and will be reprocessed"
+                    )
+
+                logger.info(f"Loaded {len(products)} selected products fir Pass 1")
+                return products
+
+        elif pass_number >= 2:
+            # Pass 2+: Reprocessing specific items
+            if not selected_item_ids:
+                logger.warning("Pass 2+ requires selected_item_ids")
+                return []
+
+            logger.info(
+                f"Pass {pass_number}: Loading {len(selected_item_ids)} products for reprocessing"
+            )
+            products = self.db.get_products_by_ids(selected_item_ids)
+            logger.info(f"Loaded {len(products)} products for Pass {pass_number}")
             return products
+
+        else:
+            logger.error(f"Invalid pass number: {pass_number}")
+            return []
+
+    # def _load_products(
+    #     self, batch_size: int, pass_number: int, selected_item_ids: Optional[List[str]]
+    # ) -> List[Any]:
+    #     """Load products based on pass number"""
+    #     if pass_number == 1:
+    #         # Pass 1: Get unprocessed products
+    #         products = self.db.get_unprocessed_products(limit=batch_size)
+    #         logger.info(f"Loaded {len(products)} unprocessed products")
+    #         return products
+    #     else:
+    #         # Pass 2+: Get selected products by ID
+    #         if not selected_item_ids:
+    #             raise ValueError("Pass 2+ requires selected_item_ids")
+
+    #         products = []
+    #         for item_id in selected_item_ids[:batch_size]:
+    #             product = self.db.get_product_by_id(item_id)
+    #             if product:
+    #                 products.append(product)
+    #         logger.info(f"Loaded {len(products)} selected products for reprocessing")
+    #         return products
 
     def _load_rules(
         self, pass_number: int, selected_rule_ids: Optional[List[str]] = None
