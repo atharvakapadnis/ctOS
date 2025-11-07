@@ -41,15 +41,15 @@ def get_database_statistics():
 
 
 @st.cache_data(ttl=60)
-def load_unprocessed_products(limit: int = 500) -> List[ProductWithProcessing]:
+def load_unprocessed_products(limit: int = 500) -> List[dict]:
     """Load unprocessed products with caching"""
     db = get_database()
     products = db.get_unprocessed_products(limit=limit)
-    return products
+    return [p.model_dump() for p in products]
 
 
 @st.cache_data(ttl=60)
-def load_processed_products(limit: int = 500) -> List[ProductWithProcessing]:
+def load_processed_products(limit: int = 500) -> List[dict]:
     """Load processed products (cached)"""
     db = get_database()
     # Get products weith any confidence level
@@ -59,23 +59,23 @@ def load_processed_products(limit: int = 500) -> List[ProductWithProcessing]:
         products.extend(level_products)
         if len(products) >= limit:
             break
-    return products[:limit]
+    return [p.model_dump() for p in products[:limit]]
 
 
 @st.cache_data(ttl=60)
 def load_products_by_confidence(
     confidence_level: List[str],
-) -> List[ProductWithProcessing]:
+) -> List[dict]:
     """Load products by confidence level with caching"""
     db = get_database()
     products = []
     for level in confidence_level:
         products.extend(db.get_products_by_confidence(level))
-    return products
+    return [p.model_dump() for p in products]
 
 
 @st.cache_data(ttl=60)
-def load_all_products(limit: int = 500) -> List[ProductWithProcessing]:
+def load_all_products(limit: int = 500) -> List[dict]:
     """Load all products (mix of processed and unprocessed)"""
     db = get_database()
 
