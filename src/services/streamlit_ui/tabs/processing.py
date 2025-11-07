@@ -72,12 +72,12 @@ def initialize_processing_session_state():
 
 
 def display_pass_1_section():
-    """Display Pass 1 Processing Section"""
+    """Display Pass 1 processing section"""
 
-    st.markdown("### Pass 1: Initial Processing")
+    st.markdown("## Pass 1: Initial Processing")
     st.caption("Process unprocessed products for the first time")
 
-    # Subesction 1: Product Selection Mode
+    # Subesection 1: Product Selection Mode
     st.markdown("#### Step 1: Select Processing Mode")
 
     mode = st.radio(
@@ -89,15 +89,44 @@ def display_pass_1_section():
         key="pass1_mode_radio",
         horizontal=False,
     )
-
     st.session_state.pass1_mode = mode
+
+    # Variables to track
+    unprocessed = []
+    batch_size = DEFAULT_BATCH_SIZE
 
     # Mode specific UI
     if mode == "Process all unprocessed products":
+        # Mode A: Process all unprocessed products
         st.info("Will process the next batch of unprocessed products from the database")
 
+        st.markdown("---")
+        st.markdown("#### Step 2: Configure Batch")
+
+        # Show unprocessed count
+        try:
+            from ..data_loader import get_database_statistics
+
+            stats = get_database_statistics()
+            unprocessed_count = stats["unprocessed_count"]
+            st.metric("Unprocessed Products Available", unprocessed_count)
+        except:
+            pass
+
+        # Number input instead of slider
+        batch_size = st.number_input(
+            "Number of products to process",
+            min_value=MIN_BATCH_SIZE,
+            max_value=MAX_BATCH_SIZE,
+            value=DEFAULT_BATCH_SIZE,
+            step=10,
+            help="Enter the number of products to process in this batch",
+            key="pass1_batch_size_mode_a",
+        )
+
     elif mode == "Select specific products to process":
-        st.markdown("#### Product Selection")
+        # Mode B: Select specific products
+        st.markdown("#### Step 2: Select Products")
 
         try:
             # Load unprocessed products
@@ -107,16 +136,16 @@ def display_pass_1_section():
                 st.warning("No unprocessed products available")
             else:
                 st.info(
-                    f"Found {len(unprocessed)} unprocessed products (showing upto 500)"
+                    f"Found {len(unprocessed)} unprocessed products (showing up to 500)"
                 )
 
-                # Select All / Deselect All
-                col1, col2, col3 = st.columns([1, 4, 1])
+                # Select All/ Deselect All
+                col1, col2, col3 = st.columns([1, 1, 4])
 
                 with col1:
                     if st.button("Select All", key="pass1_select_all"):
                         st.session_state.pass1_selected_products = {
-                            p.item_id for p in unprocessed
+                            p["item_id"] for p in unprocessed
                         }
                         st.rerun()
 
@@ -125,52 +154,60 @@ def display_pass_1_section():
                         st.session_state.pass1_selected_products = set()
                         st.rerun()
 
-                # Display Selection count
-                selected_count = len(st.session_state.pass1_selected_products)
-                st.markdown(f"**Selected: {selected_count} products**")
-
-                # Product selection with checkboxes
-                st.markdown("**Select Products:**")
-
-                for p in unprocessed[:100]:
-                    is_selected = st.checkbox(
-                        f"{p.item_id} - {p.item_description[:60]}...",
-                        value=p.item_id in st.session_state.pass1_selected_products,
-                        key=f"pass1_product_{p.item_id}",
+                # Display selection count
+                display_data = []
+                for p in unprocessed:
+                    display_data.append(
+                        {
+                            "Select": p["item_id"]
+                            in st.session_state.pass1_selected_products,
+                            "Item ID": p["item_id"],
+                            "Description": (
+                                p["item_description"][:80] + "..."
+                                if len(p["item_description"]) > 80
+                                else p["item_description"]
+                            ),
+                            "HTS Code": p.get("final_hts", "N/A"),
+                        }
                     )
 
-                    if is_selected:
-                        st.session_state.pass1_selected_products.add(p.item_id)
-                    else:
-                        st.session_state.pass1_selected_products.discard(p.item_id)
+                # Use data_editor for selection
+                edited_df = st.data_editor(
+                    display_data,
+                    width="stretch",
+                    height=400,
+                    hide_index=True,
+                    disabled=["Item ID", "Description", "HTS Code"],
+                    column_config={
+                        "Select": st.column_config.CheckboxColumn(
+                            "Select",
+                            help="Select products to process",
+                            default=False,
+                        )
+                    },
+                    key="pass1_product_selector",
+                )
 
-                if len(unprocessed) > 100:
-                    st.warning(f"Showing first 100 of {len(unprocessed)} products")
+                # Update session state based on selections
+                st.session_state.pass1_selected_products = {
+                    row["Item ID"] for row in edited_df if row["Select"]
+                }
+
+                if len(unprocessed) > 500:
+                    st.warning(f"Showing first 500 of {len(unprocessed)} products")
+
+                # Batch size is determined by seelction count
+                batch_size = len(st.session_state.pass1_selected_products)
 
         except Exception as e:
             st.error(f"Error loading products: {str(e)}")
 
     st.markdown("---")
 
-    # Subesction 2: Batch configuration
-    st.markdown("#### Step 2: Configure Batch")
-
-    batch_size = st.slider(
-        "Batch Size",
-        min_value=MIN_BATCH_SIZE,
-        max_value=MAX_BATCH_SIZE,
-        value=DEFAULT_BATCH_SIZE,
-        step=10,
-        help="Number of products to process in this batch",
-        key="pass1_batch_size",
-    )
-
-    st.markdown("---")
-
     # Subsection 3: Execute
     st.markdown("#### Step 3: Start Processing")
 
-    # Validation for Mode B
+    # Validation
     can_process = True
     validation_message = ""
 
@@ -178,9 +215,13 @@ def display_pass_1_section():
         if len(st.session_state.pass1_selected_products) == 0:
             can_process = False
             validation_message = "Please select at least one product"
-
-    if not can_process:
-        st.warning(validation_message)
+            st.warning(validation_message)
+        else:
+            st.success(
+                f"Ready to process {len(st.session_state.pass1_selected_products)} selected products"
+            )
+    else:
+        st.info(f"Ready to process next {batch_size} unprocessed products")
 
     if st.button(
         "Start Pass 1 Processing",
@@ -193,6 +234,7 @@ def display_pass_1_section():
 
         if st.session_state.pass1_mode == "Select specific products to process":
             selected_item_ids = list(st.session_state.pass1_selected_products)
+            batch_size = len(selected_item_ids)  # Use actual selection count
 
         # Create containers for status and logs
         status_container = st.empty()
@@ -208,7 +250,7 @@ def display_pass_1_section():
                 progress_bar = st.progress(0)
                 progress_bar.progress(50)
 
-            # Call batch processor
+            # Cal batch processor
             result = process_batch(
                 batch_size=batch_size,
                 pass_number=1,
@@ -225,7 +267,7 @@ def display_pass_1_section():
 
             # Display success
             status_container.success(
-                f"Batch complete: {result.successful} successful, {result.failed} failed "
+                f"Batch complete: {result.successful} succesful, {result.failed} failed "
                 f"out of {result.total_processed} processed"
             )
 
@@ -246,7 +288,7 @@ def display_pass_1_section():
             # Clear cache to show updated statistics
             clear_cache()
 
-            # Optionally clear selections for Mode B
+            # Clear selections for mode B
             if st.session_state.pass1_mode == "Select specific products to process":
                 st.session_state.pass1_selected_products = set()
 
@@ -322,7 +364,7 @@ def display_pass2_section():
         with col1:
             if st.button("Select All", key="pass2_select_all"):
                 st.session_state.pass2_selected_products = {
-                    p.item_id for p in eligible_products
+                    p["item_id"] for p in eligible_products
                 }
                 st.rerun()
 
@@ -335,28 +377,75 @@ def display_pass2_section():
         selected_count = len(st.session_state.pass2_selected_products)
         st.markdown(f"**Selected: {selected_count} products**")
 
-        # Product selection with checkboxes
+        # Create dataframe with selection column
+        display_data = []
         for p in eligible_products:
-            desc_preview = (
-                p.item_description[:50] + "..."
-                if len(p.item_description) > 50
-                else p.item_description
-            )
-
+            confidence_score = p.get("confidence_score")
             confidence_score_display = (
-                f"{float(p.confidence_score):.2f}" if p.confidence_score else "N/A"
+                f"{float(confidence_score):.2f}" if confidence_score else "N/A"
             )
 
-            is_selected = st.checkbox(
-                f"{p.item_id} - {desc_preview} ({p.confidence_level} - {confidence_score_display})",
-                value=p.item_id in st.session_state.pass2_selected_products,
-                key=f"pass2_product_{p.item_id}",
+            # Get original description
+            original_desc = p.get("item_description", "")
+            original_display = (
+                original_desc[:50] + "..." if len(original_desc) > 50 else original_desc
             )
 
-            if is_selected:
-                st.session_state.pass2_selected_products.add(p.item_id)
-            else:
-                st.session_state.pass2_selected_products.discard(p.item_id)
+            # Get enhanced description
+            enhanced_desc = p.get("enhanced_description", "")
+            enhanced_display = (
+                enhanced_desc[:50] + "..."
+                if enhanced_desc and len(enhanced_desc) > 50
+                else enhanced_desc or "N/A"
+            )
+            display_data.append(
+                {
+                    "Select": p["item_id"] in st.session_state.pass2_selected_products,
+                    "Item ID": p["item_id"],
+                    "Original Description": original_display,
+                    "Enhanced Description": enhanced_display,
+                    "Confidence": p.get("confidence_level", "N/A"),
+                    "Score": confidence_score_display,
+                    "Pass": p.get("last_processed_pass", "N/A"),
+                }
+            )
+
+        # Use data_editor for selection
+        edited_df = st.data_editor(
+            display_data,
+            width="stretch",
+            height=400,
+            hide_index=True,
+            disabled=[
+                "Item ID",
+                "Original Description",
+                "Enhanced Description",
+                "Confidence",
+                "Score",
+                "Pass",
+            ],
+            column_config={
+                "Select": st.column_config.CheckboxColumn(
+                    "Select",
+                    help="Select products to reprocess",
+                    default=False,
+                ),
+                "Original Description": st.column_config.TextColumn(
+                    "Original Description",
+                    width="medium",
+                ),
+                "Enhanced Description": st.column_config.TextColumn(
+                    "Enhanced Description",
+                    width="medium",
+                ),
+            },
+            key="pass2_product_selector",
+        )
+
+        # Update session state based on selections
+        st.session_state.pass2_selected_products = {
+            row["Item ID"] for row in edited_df if row["Select"]
+        }
     else:
         st.info("No products available. Please adjust filters above.")
 
