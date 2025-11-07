@@ -398,12 +398,34 @@ def display_pass2_section():
                 if enhanced_desc and len(enhanced_desc) > 50
                 else enhanced_desc or "N/A"
             )
+
+            # Get extracted fields
+            customer_name = p.get("extracted_customer_name") or "N/A"
+            dimensions = p.get("extracted_dimensions") or "N/A"
+            product = p.get("extracted_product") or "N/A"
+
+            rules_applied = p.get("rules_applied", "N/A")
+            rules_display = None
+
+            if rules_applied:
+                try:
+                    import json
+
+                    rule_ids = json.loads(rules_applied)
+                    rules_display = ", ".join(rule_ids) if rule_ids else "None"
+                except:
+                    rules_display = "None"
+
             display_data.append(
                 {
                     "Select": p["item_id"] in st.session_state.pass2_selected_products,
                     "Item ID": p["item_id"],
                     "Original Description": original_display,
                     "Enhanced Description": enhanced_display,
+                    "Customer": customer_name,
+                    "Dimensions": dimensions,
+                    "Product": product,
+                    "Rules Applied": rules_display,
                     "Confidence": p.get("confidence_level", "N/A"),
                     "Score": confidence_score_display,
                     "Pass": p.get("last_processed_pass", "N/A"),
@@ -420,6 +442,10 @@ def display_pass2_section():
                 "Item ID",
                 "Original Description",
                 "Enhanced Description",
+                "Customer",
+                "Dimensions",
+                "Product",
+                "Rules Applied",
                 "Confidence",
                 "Score",
                 "Pass",
@@ -437,6 +463,34 @@ def display_pass2_section():
                 "Enhanced Description": st.column_config.TextColumn(
                     "Enhanced Description",
                     width="medium",
+                ),
+                "Customer": st.column_config.TextColumn(
+                    "Customer",
+                    width="small",
+                ),
+                "Dimensions": st.column_config.TextColumn(
+                    "Dimensions",
+                    width="small",
+                ),
+                "Product": st.column_config.TextColumn(
+                    "Product",
+                    width="small",
+                ),
+                "Rules Applied": st.column_config.TextColumn(
+                    "Rules Applied",
+                    width="small",
+                ),
+                "Confidence": st.column_config.TextColumn(
+                    "Confidence",
+                    width="small",
+                ),
+                "Score": st.column_config.TextColumn(
+                    "Score",
+                    width="small",
+                ),
+                "Pass": st.column_config.TextColumn(
+                    "Pass",
+                    width="small",
                 ),
             },
             key="pass2_product_selector",
