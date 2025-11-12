@@ -3,6 +3,8 @@ SQLite database operations for products and processing results
 Two-table design: products (immutable) + processing_results (mutable)
 """
 
+from asyncio import SelectorEventLoop
+from functools import total_ordering
 import sqlite3
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -10,6 +12,8 @@ from contextlib import contextmanager
 import logging
 from datetime import datetime, timezone
 import json
+
+from pydantic.type_adapter import P
 
 from .config import (
     DATABASE_PATH,
@@ -94,6 +98,9 @@ class ProductDatabase:
                 logger.debug(f"Executing index {idx}/{len(CREATE_INDEXES_SQL)}: {sql}")
                 cursor.execute(sql)
             logger.info(f" All {len(CREATE_INDEXES_SQL)} indexes created")
+
+        # Create search optimization indexes
+        self.create_search_indexes()
 
         logger.info(" Database schema created successfully")
 
@@ -722,7 +729,7 @@ class ProductDatabase:
                 SELECT item_id, confidence_level
                 FROM {self.processing_table}
                 WHERE confidence_level IS NOT NULL
-                  AND confidence_level NOT IN ('Low', 'Medium', 'High')
+                AND confidence_level NOT IN ('Low', 'Medium', 'High')
             """
             )
             invalid_levels = [
@@ -808,3 +815,463 @@ class ProductDatabase:
             logger.info(f" Exported {len(records)} records to {output_path.absolute()}")
 
         return records
+
+    def search_products(
+        self, query: str, search_type: str = "auto", limit: Optional[int] = None
+    ) -> List[ProductWithProcessing]:
+        """
+        Search products across entire database by Item ID, HTS Code, or description keywords.
+
+        This method enables finding products beyondf the standard 500-product display limit
+        by querying the entire database. It supports mutliple search types with automatic
+        detection of search intent.
+
+        Args:
+            query (str): Search query string
+            search_type (str, optional): Type of search to perform. Defaults to "auto"
+            limit (Optional[int], optional): Maximum results to return. Defaults to None (no limit)
+
+        Returns:
+            List[ProductWithProcessing]: List of matching products with processing results
+        """
+        import re
+
+        start_time = datetime.now()
+        logger.info(
+            f"Starting search: query='{query}', type='{search_type}', limit='{limit}'"
+        )
+
+        if not query or not query.strip():
+            logger.warning("Empty search query provided")
+            return []
+
+        query = query.strip()
+
+        # Auto detect search type if not provided
+        if search_type == "auto":
+            # Check for item ID pattern
+            if re.match(rf"[A-Z0-9\-_]{6,20}$", query, re.IGNORECASE):
+                search_type = "item_id"
+                logger.debug(f"Auto detected search type: item_id")
+            # Check for HTS code pattern
+            elif re.match(r"^\d{4}\.\d{2}(\.\d{2})?$", query):
+                search_type = "hts_code"
+                logger.debug(f"Auto-detected search type: hts_code")
+            else:
+                search_type = "description"
+                logger.debug(f"Auto-detected search type: description")
+
+        # Build base query
+        base_query = f"""
+            SELECT
+                p.*,
+                pr.enhanced_description,
+                pr.confidence_score,
+                pr.confidence_level,
+                pr.extracted_customer_name,
+                pr.extracted_dimensions,
+                pr.extracted_product,
+                pr.rules_applied,
+                pr.last_processed_pass,
+                pr.last_processed_at
+            FROM {self.products_table} p
+            LEFT JOIN {self.processing_table} pr ON p.item_id = pr.item_id
+        """
+
+        # Build where clause based on the search type
+        where_clause = ""
+        params = []
+
+        if search_type == "item_id":
+            where_clause = "WHERE p.item_id LIKE ? COLLATE NOCASE"
+            params = [f"%{query}%"]
+            logger.debug(f"Search type: item_id, pattern: {query}%")
+
+        elif search_type == "hts_code":
+            where_clause = "WHERE p.final_hts LIKE ?"
+            params = [f"{query}%"]
+            logger.debug(f"Search type: hts_code, pattern: {query}%")
+
+        elif search_type == "description":
+            # Split into keywords and search for all
+            keywords = query.lower().split()
+            conditions = []
+            for keyword in keywords:
+                conditions.append("LOWER(p.item_description) LIKE ?")
+                params.append(f"%{keyword}%")
+            where_clause = "WHERE " + " AND ".join(conditions)
+            logger.debug(f"Search type: description, keywords: {keywords}")
+
+        elif search_type == "multi":
+            # Search across multiple columns
+            where_clause = """
+                WHERE p.item_id LIKE ? COLLATE NOCASE
+                OR LOWER(p.item_description) LIKE ?
+                OR p.final_hts LIKE ?
+            """
+            query_lower = query.lower()
+            params = [f"%{query}%", f"%{query_lower}%", f"%{query}%"]
+            logger.debug(f"Search type: multi-column")
+
+        # Combine query parts
+        full_query = base_query + where_clause
+
+        if limit:
+            full_query += f" LIMIT {limit}"
+
+        logger.warning(f"Executing query: {full_query}")
+        logger.debug(f"Parameters: {params}")
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(full_query, params)
+            rows = cursor.fetchall()
+
+        execution_time = (datetime.now() - start_time).total_seconds()
+        logger.info(
+            f"Search complete: found {len(rows)} results in {execution_time:.4f} seconds"
+        )
+
+        return [ProductWithProcessing(**dict(row)) for row in rows]
+
+    def filter_products(
+        self, filters: Dict[str, Any], limit: int = 500
+    ) -> List[ProductWithProcessing]:
+        f"""
+        Filter products by multiple criteria, return first N of filtered results.
+
+        Purpose: Filter product by multiple criteria, reutrn first N of filtered results.
+
+        Args:
+            filters (Dict): Dicitonary of filter critera
+            limit (int): Maximum results to return. Defaults to 500
+
+        Filter Dictionary Structure:
+        {
+            "hts_range": {
+                "start": "7303.11.00",
+                "end": "7307.99.00"
+            },
+            "product_group": "GROUP_A",
+            "material_class": "Ductile Iron",
+            "confidence_levels": ["Low", "Medium"],
+            "status": "unprocessed",
+            "description_keywords": ["spacer", "ring"]
+        }
+        
+        Returns:
+            List[ProductWithProcessing]: List of matching products (max limit)
+        """
+        start_time = datetime.now()
+        logger.info(f"Starting filter with {len(filters)} criteria, limit={limit}")
+        logger.debug(f"Filters: {filters}")
+
+        # Build base query
+        base_query = f"""
+            SELECT
+                p.*,
+                pr.enhanced_description,
+                pr.confidence_score,
+                pr.confidence_level,
+                pr.extracted_customer_name,
+                pr.extracted_dimensions,
+                pr.extracted_product,
+                pr.rules_applied,
+                pr.last_processed_pass,
+                pr.last_processed_at
+            FROM {self.products_table} p
+            LEFT JOIN {self.processing_table} pr ON p.item_id = pr.item_id
+        """
+
+        where_clauses = []
+        params = []
+
+        # HTS Range filter
+        if "hts_range" in filters and filters["hts_range"]:
+            hts_range = filters["hts_range"]
+            if hts_range.get("start") and hts_range.get("end"):
+                where_clauses.append("p.final_hts BETWEEN ? AND ?")
+                params.extend([hts_range["start"], hts_range["end"]])
+                logger.debug(
+                    f"Filter: HTS Range {hts_range['start']} to {hts_range['end']}"
+                )
+            elif hts_range.get("start"):
+                where_clauses.append("p.final_hts >= ?")
+                params.append(hts_range["start"])
+                logger.debug(f"Filter: HTS Range >= {hts_range['start']}")
+            elif hts_range.get("end"):
+                where_clauses.append("p.final_hts <= ?")
+                params.append(hts_range["end"])
+                logger.debug(f"Filter: HTS <= {hts_range['end']}")
+
+        # Product group filter
+        if filters.get("product_group"):
+            where_clauses.appedn("p.product_group = ?")
+            params.append(filters["product_group"])
+            logger.debug(f"Filter: Product Group {filters['product_group']}")
+
+        # Material class filter
+        if filters.get("material_class"):
+            where_clauses.append("p.material_class = ?")
+            params.append(filters["material_class"])
+            logger.debug(f"Filter: Material Class {filters['material_class']}")
+
+        # Status filter
+        status = filters.get("status", "all")
+        if status == "unprocessed":
+            where_clauses.append("pr.item_id IS NULL")
+            logger.debug(f"Filter: Status = Unprocessed")
+        elif status == "processed":
+            where_clauses.append("pr.item_id IS NOT NULL")
+            logger.debug(f"Filter: Status = Processed")
+
+        # Confidence Level filter (only for processed products)
+        if filters.get("confidence_levels") and status != "unprocessed":
+            levels = filters["confidence_levels"]
+            if levels:
+                placeholders = ", ".join(["?" for _ in levels])
+                where_clauses.append(f"pr.confidence_level IN ({placeholders})")
+                params.extend(levels)
+                logger.debug(f"Filter: Confidence Levels = {levels}")
+
+        # Description Keywords Filter
+        if filters.get("description_keywords"):
+            keywords = filters["description_keywords"]
+            for keyword in keywords:
+                where_clauses.append(f"LOWER(p.item_description) LIKE ?")
+                params.append(f"%{keyword.lower()}%")
+            logger.debug(f"Filter: Desccription Keywords = {keywords}")
+
+        # Combine where clauses
+        if where_clauses:
+            full_query = base_query + " WHERE " + " AND ".join(where_clauses)
+        else:
+            full_query = base_query
+
+        # Add limit
+        full_query += f" LIMIT {limit}"
+
+        logger.debug(f"Executing query: {full_query}")
+        logger.debug(f"Parameters: {params}")
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(full_query, params)
+            rows = cursor.fetchall()
+
+        execution_time = (datetime.now() - start_time).total_seconds()
+        logger.info(
+            f"Filter complete: found {len(rows)} results in {execution_time:.4f} seconds"
+        )
+
+        return [ProductWithProcessing(**dict(row)) for row in rows]
+
+    def count_filtered_products(self, filters: Dict[str, any]) -> int:
+        """
+        Count total products matching filters WITHOUT loading them.
+
+        Purpose: Count total products matching filters WITHOUT loading them
+
+        Args:
+            filters (Dict): Dictionary of filter criteria
+
+        Returns:
+            int: Total number of products matching filters
+        """
+        start_time = datetime.now()
+        logger.debug(f"Counting filtered products with filters: {filters}")
+
+        # Build count query
+        base_query = f"""
+            SELECT COUNT(*) as total
+            FROM {self.products_table} p
+            LEFT JOIN {self.processing_table} pr on p.item_id = pr.item_id
+        """
+
+        where_clauses = []
+        params = []
+
+        # HTS Range Filter
+        if "hts_range" in filters and filters["hts_range"]:
+            hts_range = filters["hts_range"]
+            if hts_range.get("start") and hts_range.get("end"):
+                where_clauses.append("p.final_hts BETWEEN ? AND ?")
+                params.extend([hts_range["start"], hts_range["end"]])
+            elif hts_range.get("start"):
+                where_clauses.append("p.final_hts >= ?")
+                params.append(hts_range["start"])
+            elif hts_range.get("end"):
+                where_clauses.append("p.final_hts <= ?")
+                params.append(hts_range["end"])
+
+        # Product Group filter
+        if filters.get("product_group"):
+            where_clauses.append("p.product_group = ?")
+            params.append(filters["product_group"])
+
+        # Material class filter
+        if filters.get("material_class"):
+            where_clauses.append("p.material_class = ?")
+            params.append(filters["material_class"])
+
+        # Status Filter
+        status = filters.get("status", "all")
+        if status == "unprocessed":
+            where_clauses.append("pr.item_id IS NULL")
+        elif status == "processed":
+            where_clauses.append("pr.item_id IS NOT NULL")
+
+        # Confidence levels filter
+        if filters.get("confidence_levels") and status != "unprocessed":
+            levels = filters["confidence_levels"]
+            if levels:
+                placeholders = ", ".join(["?" for _ in levels])
+                where_clauses.append(f"pr.confidence_level IN ({placeholders})")
+                params.extend(levels)
+
+        # Description Keywords Filter
+        if filters.get("description_keyboards"):
+            keywords = filters["description_keywords"]
+            for keyword in keywords:
+                where_clauses.append(f"LOWER(p.item_description) LIKE ?")
+                params.append(f"%{keyword.lower()}%")
+
+        # Combine WHERE clauses
+        if where_clauses:
+            full_query = base_query + " WHERE " + " AND ".join(where_clauses)
+        else:
+            full_query = base_query
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(full_query, params)
+            result = cursor.fetchone()
+            total = result["total"] if result else 0
+
+        execution_time = (datetime.now() - start_time).total_seconds()
+        logger.debug(
+            f"Count complete: found {total} results in {execution_time:.4f} seconds"
+        )
+
+        return total
+
+    def get_unique_product_groups(self) -> List[str]:
+        """
+        Get list of unique product groups for dropdown population
+
+        Returns:
+            List[str]: Sorted list of unique product groups
+        """
+        query = f"""
+            SELECT DISTINCT product_group
+            FROM {self.products_table}
+            WHERE product_group IS NOT NULL
+            ORDER BY product_group
+        """
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+        result = [row["product_group"] for row in rows]
+        logger.debug(f"Found {len(result)} unique product groups")
+
+        return result
+
+    def get_unique_material_classes(self) -> List[str]:
+        """
+        Get list of unique material classes for dropdown population.
+
+        Returns:
+            List[str]: Sorted list of unique material classes
+        """
+        query = f"""
+            SELECT DISTINCT material_class 
+            FROM {self.products_table} 
+            WHERE material_class IS NOT NULL 
+            ORDER BY material_class
+        """
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+        result = [row["material_class"] for row in rows]
+        logger.debug(f"Found {len(result)} unique material classes")
+        return result
+
+    def get_unique_hts_codes(self) -> List[str]:
+        """
+        Get list of unique HTS codes for dropdown population.
+
+        Returns:
+            List[str]: Sorted list of unique HTS codes
+        """
+        query = f"""
+            SELECT DISTINCT final_hts 
+            FROM {self.products_table} 
+            WHERE final_hts IS NOT NULL 
+            ORDER BY final_hts
+        """
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+
+        result = [row["final_hts"] for row in rows]
+        logger.debug(f"Found {len(result)} unique HTS codes")
+        return result
+
+    def get_hts_code_ranges(self) -> Dict[str, str]:
+        """
+        Get min/max HTS codes for input validation.
+
+        Returns:
+            Dict[str, str]: Dictionary with min/max HTS codes
+            Example: {"min": "7307.11.00", "max": "7307.99.90"}
+        """
+        query = f"""
+            SELECT 
+                MIN(final_hts) as min_hts, 
+                MAX(final_hts) as max_hts 
+            FROM {self.products_table}
+            WHERE final_hts IS NOT NULL
+        """
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            row = cursor.fetchone()
+
+        if row:
+            result = {"min": row["min_hts"], "max": row["max_hts"]}
+            logger.debug(f"HTS range: {result}")
+            return result
+        else:
+            logger.warning("No HTS codes found in database")
+            return {"min": "", "max": ""}
+
+    def create_search_indexes(self) -> None:
+        """
+        Create additional indexes for search optimization.
+        These are separate from the base indexes created in create_schema().
+        """
+        logger.info("Creating search optimization indexes...")
+
+        search_indexes = [
+            f"CREATE INDEX IF NOT EXISTS idx_products_item_id_search ON {self.products_table}(item_id COLLATE NOCASE)",
+            f"CREATE INDEX IF NOT EXISTS idx_products_material_class ON {self.products_table}(material_class)",
+        ]
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            for idx, sql in enumerate(search_indexes, 1):
+                logger.debug(
+                    f"Executing search index {idx}/{len(search_indexes)}: {sql}"
+                )
+                cursor.execute(sql)
+
+        logger.info(f"Created {len(search_indexes)} search indexes successfully")
