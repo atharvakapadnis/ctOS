@@ -1,13 +1,12 @@
 """
-Browse Data Tab - View-only product browsing
+Browse Data Tab - View Only Product Browsing with search and filtering
 """
 
 import streamlit as st
 from pathlib import Path
 import sys
-from typing import List
+from typing import List, Optional, Dict, Any
 
-# Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -16,79 +15,131 @@ from ..data_loader import (
     load_unprocessed_products,
     load_processed_products,
     load_products_by_confidence,
+    search_products_cached,
+    filter_products_cached,
+    count_filtered_products_cached,
 )
+from ..components import display_search_bar, display_advanced_filters
 from ..config import MAX_PRODUCTS_DISPLAY
 from src.services.ingestion.models import ProductWithProcessing
 
 
 def display_browse_data_tab():
-    """Display browse data tab - view-only product browsing"""
+    """Display browse data tab - view-only product browsing with search and filters"""
 
     st.markdown("### Browse Products")
     st.caption("View-only product database browser")
 
-    # Section A: Filter Controls
-    st.markdown("#### Filters")
+    # Section A: Search Bar
+    query, search_type, search_triggered = display_search_bar("browse_")
+    st.markdown("---")
 
-    # Status filter
+    # Section B: Basic Filter Controls
+    st.markdown("#### Basic Filters")
+
     status_filter = st.radio(
         "Filter by Status",
         options=["All Products", "Unprocessed Only", "Processed Only"],
         horizontal=True,
+        key="browse_status_filter",
     )
 
-    # Confidence filter (only show when Processed selected)
     confidence_filter = None
     if status_filter == "Processed Only":
         confidence_filter = st.multiselect(
             "Filter by Confidence Level",
             options=["High", "Medium", "Low"],
             default=["High", "Medium", "Low"],
+            key="browse_confidence_filter",
         )
+
+    # Section C: Advanced Filters
+
+    show_confidence_in_advanced = status_filter == "Processed Only"
+    advanced_filters = display_advanced_filters(
+        key_prefix="browse_", show_confidence=show_confidence_in_advanced
+    )
 
     st.markdown("---")
 
-    # Section B & C: Load and display products
+    # Section D: Load and Display products
     try:
         products = []
+        display_message = ""
 
-        # Load based on filters
-        if status_filter == "All Products":
-            products = load_all_products(limit=MAX_PRODUCTS_DISPLAY)
+        # Priority Chain: Search > Advanced Filters > Basic Filters
 
-        elif status_filter == "Unprocessed Only":
-            products = load_unprocessed_products(limit=MAX_PRODUCTS_DISPLAY)
+        if (
+            search_triggered
+            and query
+            and st.session_state.get("browse_search_active", False)
+        ):
+            # SEARCH MODE
+            products = search_products_cached(query, search_type, limit=500)
+            display_message = f"Search Results: {len(products)} products found"
 
-        elif status_filter == "Processed Only":
-            if confidence_filter:
-                products = load_products_by_confidence(confidence_filter)
-                products = products[:MAX_PRODUCTS_DISPLAY]
-            else:
-                st.warning("Please select at least one confidence level")
-                products = []
+            if not products:
+                st.info(
+                    f"No products found matching '{query}'. Try different search terms or use advanced filters."
+                )
 
-        # Section B: Product Count
-        total_count = len(products)
-        st.markdown(
-            f"**Showing {total_count} products** (max display: {MAX_PRODUCTS_DISPLAY})"
-        )
+        elif advanced_filters is not None and st.session_state.get(
+            "browse_fitlers_active", False
+        ):
+            # ADVANCED FILTER MODE
+            total_count = count_filtered_products_cached(advanced_filters)
+            products = filter_products_cached(
+                advanced_filters, limit=MAX_PRODUCTS_DISPLAY
+            )
+            display_message = f"Filtered: {len(products)} of {total_count} products (showing first {MAX_PRODUCTS_DISPLAY})"
 
-        if total_count >= MAX_PRODUCTS_DISPLAY:
+            if not products:
+                st.info(
+                    f"No products found matching your filter criteria. Try adjusting the filters"
+                )
+
+        else:
+            # BASIC FILTER MODE (Existing logic)
+            if status_filter == "All Products":
+                products = load_all_products(limit=MAX_PRODUCTS_DISPLAY)
+                display_message = (
+                    f"Showing {len(products)} products (max {MAX_PRODUCTS_DISPLAY})"
+                )
+
+            elif status_filter == "Unprocessed Only":
+                products = load_unprocessed_products(limit=MAX_PRODUCTS_DISPLAY)
+                display_message = f"Showing {len(products)} unprocessed products (max {MAX_PRODUCTS_DISPLAY})"
+
+            elif status_filter == "Processed Only":
+                if confidence_filter:
+                    products = load_products_by_confidence(confidence_filter)
+                    products = products[:MAX_PRODUCTS_DISPLAY]
+                    display_message = f"Showing {len(products)} processed products (max {MAX_PRODUCTS_DISPLAY})"
+                else:
+                    st.warning("Please select at least one confidence level")
+                    products = []
+                    display_message = "No confidence level selected"
+
+        # Section E: Product Count Display
+        if display_message:
+            st.markdown(f"**{display_message}**")
+
+        if len(products) >= MAX_PRODUCTS_DISPLAY:
             st.info(
-                f"Displaying first {MAX_PRODUCTS_DISPLAY} products. Use filters to narrow results."
+                f"Displaying first {MAX_PRODUCTS_DISPLAY} products. Use search or filters to narrow results"
             )
 
-        # Section C: Product Table
+        # Section F: Product Table
         if products:
             display_data = []
 
             for p in products:
-                enhanced_desc = p.get("enhanced_description")
+                enhanced_desc = p.enhanced_description
                 display_data.append(
                     {
-                        "Item ID": p["item_id"],
+                        "Item ID": p.item_id,
                         "Original Description": (
-                            p["item_description"][:50] + "..."
+                            p.item_description[:50] + "..."
                             if len(p["item_description"]) > 50
                             else p["item_description"]
                         ),
@@ -101,48 +152,16 @@ def display_browse_data_tab():
                             if enhanced_desc
                             else "Not Processed"
                         ),
-                        "Confidence Level": p.get("confidence_level") or "N/A",
+                        "Confidence Level": p.confidence_level or "N/A",
                         "Confidence Score": (
-                            f"{float(p.get('confidence_score')):.2f}"
-                            if p.get("confidence_score")
+                            f"{float(p.confidence_score):.2f}"
+                            if p.confidence_score
                             else "N/A"
                         ),
-                        "Extracted Product": p.get("extracted_product") or "N/A",
-                        "Pass Number": p.get("last_processed_pass") or "N/A",
+                        "Extracted Product": p.extracted_product or "N/A",
+                        "Pass Number": p.last_processed_pass or "N/A",
                     }
                 )
-            # if products:
-            #     display_data = []
-
-            #     for p in products:
-            #         display_data.append(
-            #             {
-            #                 "Item ID": p.item_id,
-            #                 "Original Description": (
-            #                     p.item_description[:50] + "..."
-            #                     if len(p.item_description) > 50
-            #                     else p.item_description
-            #                 ),
-            #                 "Enhanced Description": (
-            #                     (
-            #                         p.enhanced_description[:50] + "..."
-            #                         if p.enhanced_description
-            #                         and len(p.enhanced_description) > 50
-            #                         else p.enhanced_description
-            #                     )
-            #                     if p.enhanced_description
-            #                     else "Not Processed"
-            #                 ),
-            #                 "Confidence Level": p.confidence_level or "N/A",
-            #                 "Confidence Score": (
-            #                     f"{float(p.confidence_score):.2f}"
-            #                     if p.confidence_score
-            #                     else "N/A"
-            #                 ),
-            #                 "Extracted Product": p.extracted_product or "N/A",
-            #                 "Pass Number": p.last_processed_pass or "N/A",
-            #             }
-            #         )
 
             st.dataframe(
                 display_data,
@@ -151,14 +170,15 @@ def display_browse_data_tab():
                 hide_index=True,
             )
         else:
-            st.warning("No products found matching the selected filters")
+            if not display_message or "No" not in display_message:
+                st.warning("No products found matching the selected criteria")
 
         st.markdown("---")
 
-        # Section D: Future Placeholder
-        st.info("Export and advanced filtering features coming soon")
+        # Section G: Future Placeholder
+        st.info("Export features coming soon")
 
     except Exception as e:
         st.error(f"Error loading products: {str(e)}")
-        if st.button("Retry"):
+        if st.button("Retry", key="browse_retry"):
             st.rerun()

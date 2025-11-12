@@ -3,7 +3,6 @@ Processing Tab - Pass 1 and Pass 2+ Processing Operations
 All processing operation happen here
 """
 
-from tkinter import N
 import streamlit as st
 from pathlib import Path
 import sys
@@ -17,7 +16,11 @@ from ..data_loader import (
     load_unprocessed_products,
     load_products_by_confidence,
     clear_cache,
+    search_products_cached,
+    filter_products_cached,
+    count_filtered_products_cached,
 )
+from ..components import display_search_bar, display_advanced_filters
 from ..config import (
     DEFAULT_BATCH_SIZE,
     MIN_BATCH_SIZE,
@@ -123,29 +126,89 @@ def display_pass_1_section():
             help="Enter the number of products to process in this batch",
             key="pass1_batch_size_mode_a",
         )
+    elif mode == "Selecte specific products to process":
+        # Mode B: Select specific products with search and filters
+        st.markdown("---")
+        st.markdown("#### Step 2: Find Products to Process")
 
-    elif mode == "Select specific products to process":
-        # Mode B: Select specific products
-        st.markdown("#### Step 2: Select Products")
+        # Search Bar
+        query, search_type, search_triggered = display_search_bar(key_prefix="pass1_")
+        st.markdown("---")
+
+        # Advanced Filters (No confidence filter for unprocessed)
+        advanced_filters = display_advanced_filters(
+            key_prefix="pass1_",
+            show_confidence=False,
+        )
+
+        st.markdown("---")
+        st.markdown("#### Step 3: Select Products")
 
         try:
-            # Load unprocessed products
-            unprocessed = load_unprocessed_products(limit=500)
+            products_to_display = []
+            display_message = ""
 
-            if not unprocessed:
-                st.warning("No unprocessed products available")
-            else:
-                st.info(
-                    f"Found {len(unprocessed)} unprocessed products (showing up to 500)"
+            # Priority: Search> Filters> Default
+            if (
+                search_triggered
+                and query
+                and st.session_state.get("pass1_search_active", False)
+            ):
+                # Search Mode
+                products_to_display = search_products_cached(
+                    query, search_type, limit=500
                 )
 
+                # Filter out already processed products
+                products_to_display = [
+                    p for p in products_to_display if not p.get("enhanced_description")
+                ]
+
+                display_message = f"Search Results: {len(products_to_display)} unprocessed products found"
+
+                if not products_to_display:
+                    st.info(
+                        f"No unprocessed products found matching '{query}'. Try different search terms."
+                    )
+
+            elif advanced_filters is not None and st.session_state.get(
+                "pass1_filters_active", False
+            ):
+                # Filter Mode
+                # Ensure status is unprocessed
+                advanced_filters["status"] = "unprocessed"
+
+                total_count = count_filtered_products_cached(advanced_filters)
+                products_to_display = filter_products_cached(
+                    advanced_filters, limit=500
+                )
+
+                display_message = f"Filtered: {len(products_to_display)} of {total_count} unprocessed products (showing first 500)"
+
+                if not products_to_display:
+                    st.info(
+                        f"No unprocessed products found matching your filters. Try adjusting the criteria."
+                    )
+
+            else:
+                # DEFAULT: Load unprocessed
+                products_to_display = load_unprocessed_products(limit=500)
+                display_message = f"Showing {len(products_to_display)} unprocessed products (showing first 500)"
+
+            # Display count
+            if display_message:
+                st.info(display_message)
+
+            if not products_to_display:
+                st.warning("No unprocessed products available")
+            else:
                 # Select All/ Deselect All
                 col1, col2, col3 = st.columns([1, 1, 4])
 
                 with col1:
                     if st.button("Select All", key="pass1_select_all"):
                         st.session_state.pass1_selected_products = {
-                            p["item_id"] for p in unprocessed
+                            p["item_id"] for p in products_to_display
                         }
                         st.rerun()
 
@@ -154,9 +217,9 @@ def display_pass_1_section():
                         st.session_state.pass1_selected_products = set()
                         st.rerun()
 
-                # Display selection count
+                # Build display data for data_editor
                 display_data = []
-                for p in unprocessed:
+                for p in products_to_display:
                     display_data.append(
                         {
                             "Select": p["item_id"]
@@ -168,6 +231,8 @@ def display_pass_1_section():
                                 else p["item_description"]
                             ),
                             "HTS Code": p.get("final_hts", "N/A"),
+                            "Product Group": p.get("product_group", "N/A"),
+                            "Material": p.get("material_class", "N/A"),
                         }
                     )
 
@@ -177,26 +242,33 @@ def display_pass_1_section():
                     width="stretch",
                     height=400,
                     hide_index=True,
-                    disabled=["Item ID", "Description", "HTS Code"],
+                    disabled=[
+                        "Item ID",
+                        "Description",
+                        "HTS Code",
+                        "Product Group",
+                        "Material",
+                    ],
                     column_config={
                         "Select": st.column_config.CheckboxColumn(
                             "Select",
                             help="Select products to process",
                             default=False,
-                        )
+                        ),
+                        "Description": st.column_config.TextColumn(
+                            "Description",
+                            width="large",
+                        ),
                     },
                     key="pass1_product_selector",
                 )
 
-                # Update session state based on selections
+                # Update Session state based on selections
                 st.session_state.pass1_selected_products = {
                     row["Item ID"] for row in edited_df if row["Select"]
                 }
 
-                if len(unprocessed) > 500:
-                    st.warning(f"Showing first 500 of {len(unprocessed)} products")
-
-                # Batch size is determined by seelction count
+                # Batch size is determined by selection count
                 batch_size = len(st.session_state.pass1_selected_products)
 
         except Exception as e:
@@ -318,13 +390,13 @@ def display_pass_1_section():
 
 
 def display_pass2_section():
-    """Display Pass 2+ reprocessing section"""
+    """Display Pass 2+ reprocessing section with search and filters"""
 
-    st.markdown("## Pass 2+: Reprocessing with Rules")
+    st.markdown(f"## Pass 2+: Reprocessing with Rules")
     st.caption("Reprocess products with additional rule guidance")
 
-    # Step 1: Filter Products
-    st.markdown("#### Step 1: Filter Products for Reprocessing")
+    # Step 1: Basic Filter - Confidence Levels
+    st.markdown("#### Step 1: Filter by Confidence Level")
 
     confidence_filter = st.multiselect(
         "Select Confidence Levels to Reprocess",
@@ -333,32 +405,92 @@ def display_pass2_section():
         key="pass2_confidence_filter",
     )
 
-    eligible_products = []
+    # Step 1.5: Search and Advanced Filters
+    st.markdown("---")
+    st.markdown("#### Refine Search (Optional)")
 
-    if confidence_filter:
-        try:
-            eligible_products = load_products_by_confidence(confidence_filter)
-            eligible_products = eligible_products[:MAX_SELECTION_ITEMS]
+    # Search Bar
+    query, search_type, search_triggered = display_search_bar(key_prefix="pass2_")
 
-            st.info(
-                f"Found {len(eligible_products)} eligible products for reprocessing"
-            )
-
-            if len(eligible_products) >= MAX_SELECTION_ITEMS:
-                st.warning(f"Showing first {MAX_SELECTION_ITEMS} products")
-
-        except Exception as e:
-            st.error(f"Error loading products: {str(e)}")
-    else:
-        st.warning("Please select at least one confidence level")
+    # Advanced Filters
+    advanced_filters = display_advanced_filters(
+        key_prefix="pass2_",
+        show_confidence=True,
+    )
 
     st.markdown("---")
 
-    # Step 2: Select Products
+    # Step 2: Load and Select Products
     st.markdown("#### Step 2: Select Products to Reprocess")
 
+    eligible_products = []
+    display_message = ""
+
+    try:
+        # Priority: Search > Filters > Basic Confidence Filter
+        if (
+            search_triggered
+            and query
+            and st.session_state.get("pass2_search_active", False)
+        ):
+            # Search Mode
+            eligible_products = search_products_cached(query, search_type, limit=500)
+
+            # Filter by confidence if specified in basic filter
+            if confidence_filter:
+                eligible_products = [
+                    p
+                    for p in eligible_products
+                    if p.get("confidence_level") in confidence_filter
+                ]
+
+                display_message = f"Search Results: {len(eligible_products)} products found (max 100 for selection)"
+
+                if not eligible_products:
+                    st.info(
+                        f"No products found matching '{query}' with selected confidence levels"
+                    )
+
+        elif advanced_filters is not None and st.session_state.get(
+            "pass2_filters_active", False
+        ):
+            # Advanced Filter Mode
+            # Merge basic confidence filter into advanced filters
+            if confidence_filter:
+                advanced_filters["confidence_levels"] = confidence_filter
+
+            total_count = count_filtered_products_cached(advanced_filters)
+            eligible_products = filter_products_cached(advanced_filters, limit=100)
+
+            display_message = f"Filtered: {len(eligible_products)} of {total_count} products (showing first 100)"
+
+            if not eligible_products:
+                st.info("No products found matching your filter criteria.")
+
+        elif confidence_filter:
+            # BASIC FILTER ONLY (existing behavior)
+            eligible_products = load_products_by_confidence(confidence_filter)
+            eligible_products = eligible_products[:100]
+
+            display_message = (
+                f"Found {len(eligible_products)} products (showing max 100)"
+            )
+
+        else:
+            st.warning(
+                "Please select at least one confidence level or use search/filters"
+            )
+
+        # Display count
+        if display_message:
+            st.info(display_message)
+
+    except Exception as e:
+        st.error(f"Error loading products: {str(e)}")
+
+    # Product selection table
     if eligible_products:
-        # Select All / Deselect All buttons
+        # Select All/ Deselect All buttons
         col1, col2, col3 = st.columns([1, 1, 4])
 
         with col1:
@@ -373,61 +505,34 @@ def display_pass2_section():
                 st.session_state.pass2_selected_products = set()
                 st.rerun()
 
-        # Display selection count
-        selected_count = len(st.session_state.pass2_selected_products)
-        st.markdown(f"**Selected: {selected_count} products**")
-
-        # Create dataframe with selection column
+        # Build display data
         display_data = []
         for p in eligible_products:
-            confidence_score = p.get("confidence_score")
-            confidence_score_display = (
-                f"{float(confidence_score):.2f}" if confidence_score else "N/A"
-            )
-
-            # Get original description
-            original_desc = p.get("item_description", "")
-            original_display = (
-                original_desc[:50] + "..." if len(original_desc) > 50 else original_desc
-            )
-
-            # Get enhanced description
-            enhanced_desc = p.get("enhanced_description", "")
-            enhanced_display = (
-                enhanced_desc[:50] + "..."
-                if enhanced_desc and len(enhanced_desc) > 50
-                else enhanced_desc or "N/A"
-            )
-
-            # Get extracted fields
-            customer_name = p.get("extracted_customer_name") or "N/A"
-            dimensions = p.get("extracted_dimensions") or "N/A"
-            product = p.get("extracted_product") or "N/A"
-
-            rules_applied = p.get("rules_applied", "N/A")
-            rules_display = None
-
-            if rules_applied:
-                try:
-                    import json
-
-                    rule_ids = json.loads(rules_applied)
-                    rules_display = ", ".join(rule_ids) if rule_ids else "None"
-                except:
-                    rules_display = "None"
-
             display_data.append(
                 {
                     "Select": p["item_id"] in st.session_state.pass2_selected_products,
                     "Item ID": p["item_id"],
-                    "Original Description": original_display,
-                    "Enhanced Description": enhanced_display,
-                    "Customer": customer_name,
-                    "Dimensions": dimensions,
-                    "Product": product,
-                    "Rules Applied": rules_display,
+                    "Original Description": (
+                        p["item_description"][:50] + "..."
+                        if len(p["item_description"]) > 50
+                        else p["item_description"]
+                    ),
+                    "Enhanced Description": (
+                        p.get("enhanced_description", "")[:50] + "..."
+                        if p.get("enhanced_description")
+                        and len(p.get("enhanced_description")) > 50
+                        else p.get("enhanced_description", "")
+                    ),
+                    "Customer": p.get("extracted_customer_name", "N/A"),
+                    "Dimensions": p.get("extracted_dimensions", "N/A"),
+                    "Product": p.get("extracted_product", "N/A"),
+                    "Rules Applied": p.get("rules_applied", "N/A"),
                     "Confidence": p.get("confidence_level", "N/A"),
-                    "Score": confidence_score_display,
+                    "Score": (
+                        f"{float(p.get('confidence_score', 0)):.2f}"
+                        if p.get("confidence_score")
+                        else "N/A"
+                    ),
                     "Pass": p.get("last_processed_pass", "N/A"),
                 }
             )
@@ -464,34 +569,6 @@ def display_pass2_section():
                     "Enhanced Description",
                     width="medium",
                 ),
-                "Customer": st.column_config.TextColumn(
-                    "Customer",
-                    width="small",
-                ),
-                "Dimensions": st.column_config.TextColumn(
-                    "Dimensions",
-                    width="small",
-                ),
-                "Product": st.column_config.TextColumn(
-                    "Product",
-                    width="small",
-                ),
-                "Rules Applied": st.column_config.TextColumn(
-                    "Rules Applied",
-                    width="small",
-                ),
-                "Confidence": st.column_config.TextColumn(
-                    "Confidence",
-                    width="small",
-                ),
-                "Score": st.column_config.TextColumn(
-                    "Score",
-                    width="small",
-                ),
-                "Pass": st.column_config.TextColumn(
-                    "Pass",
-                    width="small",
-                ),
             },
             key="pass2_product_selector",
         )
@@ -501,87 +578,98 @@ def display_pass2_section():
             row["Item ID"] for row in edited_df if row["Select"]
         }
     else:
-        st.info("No products available. Please adjust filters above.")
+        st.info(
+            "No products available. Please adjust filters or search criteria above."
+        )
 
     st.markdown("---")
 
-    # Step 2.5: Select Rules
-    st.markdown("#### Step 2.5: Select Rules to Apply")
+    # Step 2.5: Rule Selection (exisiting logic continues below...)
+    st.markdown("#### Step 2.5: Select Rules (Optional)")
 
     try:
         rule_manager = RuleManager()
-        rules = rule_manager.load_rules()
-        active_rules = [r for r in rules if r.active]
+        all_rules = rule_manager.get_all_rules()
 
-        if active_rules:
-            st.info(f"Found {len(active_rules)} active rules")
+        if not all_rules:
+            st.info("No rules available. Create rules in the Rules tab.")
+        else:
+            st.info(f"Found {len(all_rules)} active rules.")
 
-            # Select All / Deselect All buttons
-            col1, col2, col3 = st.columns([1, 1, 4])
+            # Select All/ Deselect All for rules
+            rule_col1, rule_col2, rule_col3 = st.columns([1, 1, 4])
 
-            with col1:
+            with rule_col1:
                 if st.button("Select All Rules", key="pass2_select_all_rules"):
                     st.session_state.selected_rule_ids = {
-                        r.rule_id for r in active_rules
+                        r["rule_id"] for r in all_rules
                     }
                     st.rerun()
 
-            with col2:
+            with rule_col2:
                 if st.button("Deselect All Rules", key="pass2_deselect_all_rules"):
                     st.session_state.selected_rule_ids = set()
                     st.rerun()
 
-            # Display selection count
-            selected_rule_count = len(st.session_state.selected_rule_ids)
-            st.markdown(f"**Selected: {selected_rule_count} rules**")
-
-            # Rule selection with checkboxes
-            for rule in active_rules:
-                is_selected = st.checkbox(
-                    f"{rule.rule_id} - {rule.rule_name} ({rule.rule_type})",
-                    value=rule.rule_id in st.session_state.selected_rule_ids,
-                    key=f"pass2_rule_{rule.rule_id}",
-                    help=rule.rule_content,
+            # Display rules in data_editor
+            rule_display_data = []
+            for rule in all_rules:
+                rule_display_data.append(
+                    {
+                        "Select": rule["rule_id"] in st.session_state.selected_rule_ids,
+                        "Rule ID": rule["rule_id"],
+                        "Name": rule["rule_name"],
+                        "Type": rule["rule_type"],
+                        "Status": "Active" if rule["active"] else "Inactive",
+                        "Content": (
+                            rule["rule_content"][:60] + "..."
+                            if len(rule["rule_content"]) > 60
+                            else rule["rule_content"]
+                        ),
+                    }
                 )
 
-                if is_selected:
-                    st.session_state.selected_rule_ids.add(rule.rule_id)
-                else:
-                    st.session_state.selected_rule_ids.discard(rule.rule_id)
-        else:
-            st.warning("No active rules found. Go to Rules tab to create rules.")
+            edited_rules_df = st.data_editor(
+                rule_display_data,
+                use_container_width=True,
+                height=300,
+                hide_index=True,
+                disabled=["Rule ID", "Name", "Type", "Status", "Content"],
+                column_config={
+                    "Select": st.column_config.CheckboxColumn(
+                        "Select",
+                        help="Select rules to apply",
+                        default=False,
+                    ),
+                    "Content": st.column_config.TextColumn(
+                        "Content",
+                        width="large",
+                    ),
+                },
+                key="pass2_rule_selector",
+            )
+
+            # Update session state
+            st.session_state.selected_rule_ids = {
+                row["Rule ID"] for row in edited_rules_df if row["Select"]
+            }
 
     except Exception as e:
         st.error(f"Error loading rules: {str(e)}")
 
     st.markdown("---")
 
-    # Step 3: Reprocessing Configuration
-    st.markdown("#### Step 3: Configure Reprocessing")
+    # Step 3: Configuration
+    st.markdown("#### Step 3: Configuration")
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        pass_number = st.number_input(
-            "Pass Number",
-            min_value=2,
-            max_value=10,
-            value=2,
-            step=1,
-            help="Pass number for this reprocessing operation",
-            key="pass2_pass_number",
-        )
-
-    with col2:
-        batch_size = st.slider(
-            "Batch Size",
-            min_value=MIN_BATCH_SIZE,
-            max_value=MAX_BATCH_SIZE,
-            value=min(50, DEFAULT_BATCH_SIZE),
-            step=10,
-            help="Number of products to process in this batch",
-            key="pass2_batch_size",
-        )
+    pass_number = st.number_input(
+        "Pass Number",
+        min_value=2,
+        max_value=10,
+        value=2,
+        help="Specify the pass number for tracking",
+        key="pass2_pass_number",
+    )
 
     st.markdown("---")
 
@@ -589,25 +677,19 @@ def display_pass2_section():
     st.markdown("#### Step 4: Start Reprocessing")
 
     # Validation
-    can_reprocess = True
-    validation_messages = []
-
-    if len(st.session_state.pass2_selected_products) == 0:
-        can_reprocess = False
-        validation_messages.append("Please select at least one product")
-
-    if len(st.session_state.selected_rule_ids) == 0:
-        validation_messages.append(
-            "Warning: No rules selected. Processing will continue without rule guidance."
-        )
+    can_reprocess = len(st.session_state.pass2_selected_products) > 0
 
     if not can_reprocess:
-        st.error(validation_messages[0])
-    elif len(validation_messages) > 0:
-        st.warning(validation_messages[0])
+        st.warning("Please select at least one product to reprocess")
+    else:
+        selected_count = len(st.session_state.pass2_selected_products)
+        rule_count = len(st.session_state.selected_rule_ids)
+        st.success(
+            f"Ready to reprocess {selected_count} products " f"with {rule_count} rules"
+        )
 
     if st.button(
-        "Reprocess Selected Items",
+        "Start Pass 2+ Reprocessing",
         type="primary",
         disabled=not can_reprocess,
         key="pass2_start",
@@ -621,14 +703,14 @@ def display_pass2_section():
             st.session_state.processing_status = "Processing"
             status_container.info("Reprocessing batch...")
 
-            # Show progress bar
+            # Show progress
             with progress_container:
                 progress_bar = st.progress(0)
                 progress_bar.progress(50)
 
             # Call batch processor
             result = process_batch(
-                batch_size=batch_size,
+                batch_size=len(st.session_state.pass2_selected_products),
                 pass_number=pass_number,
                 selected_item_ids=list(st.session_state.pass2_selected_products),
                 selected_rule_ids=(
@@ -655,7 +737,6 @@ def display_pass2_section():
             with log_container:
                 st.json(
                     {
-                        "pass_number": result.pass_number,
                         "total_processed": result.total_processed,
                         "successful": result.successful,
                         "failed": result.failed,
@@ -663,20 +744,14 @@ def display_pass2_section():
                         "avg_time_per_product": f"{result.avg_time_per_product:.2f}s",
                         "processing_time": f"{result.processing_time:.2f}s",
                         "confidence_distribution": result.confidence_distribution,
-                        "rules_applied": (
-                            list(st.session_state.selected_rule_ids)
-                            if st.session_state.selected_rule_ids
-                            else []
-                        ),
                     }
                 )
 
             # Clear cache
             clear_cache()
 
-            # Clear selections after successful reprocessing
+            # Clear selections
             st.session_state.pass2_selected_products = set()
-            st.session_state.selected_rule_ids = set()
 
         except Exception as e:
             st.session_state.processing_status = "Error"
@@ -701,5 +776,3 @@ def display_pass2_section():
             st.metric("Failed", result.failed)
         with metric_col4:
             st.metric("Success Rate", f"{result.success_rate:.1%}")
-
-        st.markdown(f"**Pass Number:** {result.pass_number}")
