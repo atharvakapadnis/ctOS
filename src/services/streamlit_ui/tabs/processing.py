@@ -164,7 +164,7 @@ def display_pass_1_section():
                     p for p in products_to_display if not p.get("enhanced_description")
                 ]
 
-                display_message = f"Search Results: {len(products_to_display)} unprocessed products found"
+                display_message = f"Search Results: {len(products_to_display)} unprocessed products found."
 
                 if not products_to_display:
                     st.info(
@@ -172,7 +172,7 @@ def display_pass_1_section():
                     )
 
             elif advanced_filters is not None and st.session_state.get(
-                "pass1_filters_active", False
+                "pass1_filters1_active", False
             ):
                 # Filter Mode
                 # Ensure status is unprocessed
@@ -183,24 +183,27 @@ def display_pass_1_section():
                     advanced_filters, limit=500
                 )
 
-                display_message = f"Filtered: {len(products_to_display)} of {total_count} unprocessed products (showing first 500)"
+                display_message = f"Filtered: {len(products_to_display)} of {total_count} unprocessed products (showing max 500)"
 
                 if not products_to_display:
                     st.info(
-                        f"No unprocessed products found matching your filters. Try adjusting the criteria."
+                        "No unprocessed products found matching your filters. Try adjusting the criteria."
                     )
 
             else:
                 # DEFAULT: Load unprocessed
                 products_to_display = load_unprocessed_products(limit=500)
-                display_message = f"Showing {len(products_to_display)} unprocessed products (showing first 500)"
+                display_message = f"Showing {len(products_to_display)} unprocessed products (first 500)"
 
             # Display count
             if display_message:
                 st.info(display_message)
 
+            # Always show table section even when empty
             if not products_to_display:
-                st.warning("No unprocessed products available")
+                if not display_message:
+                    st.warning("No unprocessed products available")
+
             else:
                 # Select All/ Deselect All
                 col1, col2, col3 = st.columns([1, 1, 4])
@@ -589,12 +592,24 @@ def display_pass2_section():
 
     try:
         rule_manager = RuleManager()
-        all_rules = rule_manager.get_all_rules()
+        all_rules = rule_manager.load_rules()
+
+        # Convert Rule objects to dictionaries
+        all_rules = [
+            {
+                "rule_id": rule.rule_id,
+                "rule_name": rule.rule_name,
+                "rule_content": rule.rule_content,
+                "rule_type": rule.rule_type,
+                "active": rule.active,
+            }
+            for rule in all_rules
+        ]
 
         if not all_rules:
             st.info("No rules available. Create rules in the Rules tab.")
         else:
-            st.info(f"Found {len(all_rules)} active rules.")
+            st.info(f"Found {len(all_rules)} available rules.")
 
             # Select All/ Deselect All for rules
             rule_col1, rule_col2, rule_col3 = st.columns([1, 1, 4])
@@ -631,7 +646,7 @@ def display_pass2_section():
 
             edited_rules_df = st.data_editor(
                 rule_display_data,
-                use_container_width=True,
+                width="stretch",
                 height=300,
                 hide_index=True,
                 disabled=["Rule ID", "Name", "Type", "Status", "Content"],

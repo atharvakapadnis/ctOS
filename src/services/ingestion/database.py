@@ -847,16 +847,16 @@ class ProductDatabase:
 
         query = query.strip()
 
-        # Auto detect search type if not provided
+        # Auto-detect search type if needed
         if search_type == "auto":
-            # Check for item ID pattern
-            if re.match(rf"[A-Z0-9\-_]{6,20}$", query, re.IGNORECASE):
-                search_type = "item_id"
-                logger.debug(f"Auto detected search type: item_id")
-            # Check for HTS code pattern
-            elif re.match(r"^\d{4}\.\d{2}(\.\d{2})?$", query):
+            # Check for HTS code pattern first (most specific)
+            if re.match(r"^\d{4}\.\d{2}(\.\d{2})?(\.\d{2})?$", query):
                 search_type = "hts_code"
                 logger.debug(f"Auto-detected search type: hts_code")
+            # Check for item ID pattern (alphanumeric with optional dashes/underscores)
+            elif re.match(r"^[A-Z0-9]+[-_]?[A-Z0-9]+$", query, re.IGNORECASE):
+                search_type = "item_id"
+                logger.debug(f"Auto-detected search type: item_id")
             else:
                 search_type = "description"
                 logger.debug(f"Auto-detected search type: description")
@@ -937,7 +937,7 @@ class ProductDatabase:
     def filter_products(
         self, filters: Dict[str, Any], limit: int = 500
     ) -> List[ProductWithProcessing]:
-        f"""
+        """
         Filter products by multiple criteria, return first N of filtered results.
 
         Purpose: Filter product by multiple criteria, reutrn first N of filtered results.
@@ -958,7 +958,7 @@ class ProductDatabase:
             "status": "unprocessed",
             "description_keywords": ["spacer", "ring"]
         }
-        
+
         Returns:
             List[ProductWithProcessing]: List of matching products (max limit)
         """
@@ -1006,7 +1006,7 @@ class ProductDatabase:
 
         # Product group filter
         if filters.get("product_group"):
-            where_clauses.appedn("p.product_group = ?")
+            where_clauses.append("p.product_group = ?")
             params.append(filters["product_group"])
             logger.debug(f"Filter: Product Group {filters['product_group']}")
 

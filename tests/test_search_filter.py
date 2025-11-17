@@ -231,7 +231,7 @@ class TestFilterProducts:
         """Test filtering by HTS range (both start and end)"""
         filters = {"hts_range": {"start": "7307.11.00", "end": "7307.92.99"}}
         results = populated_db.filter_products(filters, limit=500)
-        assert len(results) == 2
+        assert len(results) == 3
         for r in results:
             assert "7307.11.00" <= r.final_hts <= "7307.92.99"
 

@@ -134,14 +134,14 @@ def display_browse_data_tab():
             display_data = []
 
             for p in products:
-                enhanced_desc = p.enhanced_description
+                enhanced_desc = p.get("enhanced_description")
                 display_data.append(
                     {
                         "Item ID": p.item_id,
                         "Original Description": (
-                            p.item_description[:50] + "..."
-                            if len(p["item_description"]) > 50
-                            else p["item_description"]
+                            p.get("item_description")[:50] + "..."
+                            if len(p.get("item_description")) > 50
+                            else p.get("item_description", "")
                         ),
                         "Enhanced Description": (
                             (
@@ -152,14 +152,14 @@ def display_browse_data_tab():
                             if enhanced_desc
                             else "Not Processed"
                         ),
-                        "Confidence Level": p.confidence_level or "N/A",
+                        "Confidence Level": p.get("confidence_level", "N/A"),
                         "Confidence Score": (
-                            f"{float(p.confidence_score):.2f}"
-                            if p.confidence_score
+                            f"{float(p.get('confidence_score', 0)):.2f}"
+                            if p.get("confidence_score")
                             else "N/A"
                         ),
-                        "Extracted Product": p.extracted_product or "N/A",
-                        "Pass Number": p.last_processed_pass or "N/A",
+                        "Extracted Product": p.get("extracted_product", "N/A"),
+                        "Pass Number": p.get("last_processed_pass", "N/A"),
                     }
                 )
 
