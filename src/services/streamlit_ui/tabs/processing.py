@@ -126,19 +126,17 @@ def display_pass_1_section():
             help="Enter the number of products to process in this batch",
             key="pass1_batch_size_mode_a",
         )
-    elif mode == "Selecte specific products to process":
+    elif mode == "Select specific products to process":
         # Mode B: Select specific products with search and filters
         st.markdown("---")
         st.markdown("#### Step 2: Find Products to Process")
 
         # Search Bar
         query, search_type, search_triggered = display_search_bar(key_prefix="pass1_")
-        st.markdown("---")
 
-        # Advanced Filters (No confidence filter for unprocessed)
+        # Advanced filters (no confidence filter for unprocessed)
         advanced_filters = display_advanced_filters(
-            key_prefix="pass1_",
-            show_confidence=False,
+            key_prefix="pass1_", show_confidence=False
         )
 
         st.markdown("---")
@@ -148,7 +146,7 @@ def display_pass_1_section():
             products_to_display = []
             display_message = ""
 
-            # Priority: Search> Filters> Default
+            # Priority: Search > Filters > Default
             if (
                 search_triggered
                 and query
@@ -172,7 +170,7 @@ def display_pass_1_section():
                     )
 
             elif advanced_filters is not None and st.session_state.get(
-                "pass1_filters1_active", False
+                "pass1_filters_active", False
             ):
                 # Filter Mode
                 # Ensure status is unprocessed
@@ -191,7 +189,7 @@ def display_pass_1_section():
                     )
 
             else:
-                # DEFAULT: Load unprocessed
+                # Default: Load unprocessed
                 products_to_display = load_unprocessed_products(limit=500)
                 display_message = f"Showing {len(products_to_display)} unprocessed products (first 500)"
 
@@ -199,11 +197,10 @@ def display_pass_1_section():
             if display_message:
                 st.info(display_message)
 
-            # Always show table section even when empty
+            # Always show product selection
             if not products_to_display:
-                if not display_message:
-                    st.warning("No unprocessed products available")
-
+                st.warning("No unprocessed products available")
+                batch_size = 0
             else:
                 # Select All/ Deselect All
                 col1, col2, col3 = st.columns([1, 1, 4])
@@ -276,8 +273,9 @@ def display_pass_1_section():
 
         except Exception as e:
             st.error(f"Error loading products: {str(e)}")
+            batch_size = 0
 
-    st.markdown("---")
+        st.markdown("---")
 
     # Subsection 3: Execute
     st.markdown("#### Step 3: Start Processing")
@@ -676,17 +674,37 @@ def display_pass2_section():
 
     # Step 3: Configuration
     st.markdown("#### Step 3: Configuration")
+    # Auto Calculate next pass number based on selected products
+    if st.session_state.pass2_selected_products:
+        # Get the maximum pass number from selected products
+        max_pass = 1
+        for p_id in st.session_state.pass2_selected_products:
+            matching_products = next(
+                (p for p in eligible_products if p["item_id"] == p_id), None
+            )
+            if matching_products and matching_products.get("last_processed_pass"):
+                try:
+                    current_pass = int(matching_products["last_processed_pass"])
+                    max_pass = max(max_pass, current_pass)
+                except (ValueError, TypeError):
+                    pass
 
-    pass_number = st.number_input(
-        "Pass Number",
-        min_value=2,
-        max_value=10,
-        value=2,
-        help="Specify the pass number for tracking",
-        key="pass2_pass_number",
-    )
+        pass_number = max_pass + 1
+        st.info(f"Next pass number: **{pass_number}** (automatically calculated)")
+    else:
+        pass_number = 2
+        st.info("Select products to see the next pass number")
 
-    st.markdown("---")
+    # pass_number = st.number_input(
+    #     "Pass Number",
+    #     min_value=2,
+    #     max_value=10,
+    #     value=2,
+    #     help="Specify the pass number for tracking",
+    #     key="pass2_pass_number",
+    # )
+
+    # st.markdown("---")
 
     # Step 4: Execute
     st.markdown("#### Step 4: Start Reprocessing")

@@ -74,19 +74,19 @@ def display_browse_data_tab():
             and query
             and st.session_state.get("browse_search_active", False)
         ):
-            # SEARCH MODE
+            # Search Mode
             products = search_products_cached(query, search_type, limit=500)
             display_message = f"Search Results: {len(products)} products found"
 
             if not products:
                 st.info(
-                    f"No products found matching '{query}'. Try different search terms or use advanced filters."
+                    f"No prdoducts found matching '{query}'. Try different search terms or use advanced filters."
                 )
 
         elif advanced_filters is not None and st.session_state.get(
-            "browse_fitlers_active", False
+            "browse_filters_active", False
         ):
-            # ADVANCED FILTER MODE
+            # Advanced Filter Mode
             total_count = count_filtered_products_cached(advanced_filters)
             products = filter_products_cached(
                 advanced_filters, limit=MAX_PRODUCTS_DISPLAY
@@ -95,11 +95,11 @@ def display_browse_data_tab():
 
             if not products:
                 st.info(
-                    f"No products found matching your filter criteria. Try adjusting the filters"
+                    "No products found matching your filter criteria. Try adjusting the filters"
                 )
 
         else:
-            # BASIC FILTER MODE (Existing logic)
+            # Basic filter mode
             if status_filter == "All Products":
                 products = load_all_products(limit=MAX_PRODUCTS_DISPLAY)
                 display_message = (
@@ -134,14 +134,20 @@ def display_browse_data_tab():
             display_data = []
 
             for p in products:
+                # Ensure we're working with dict
+                if not isinstance(p, dict):
+                    p = p if hasattr(p, "__dict__") else p.model_dump()
+
                 enhanced_desc = p.get("enhanced_description")
+                item_desc = p.get("item_description", "")
+
                 display_data.append(
                     {
-                        "Item ID": p.item_id,
+                        "Item ID": p.get("item_id", ""),
                         "Original Description": (
-                            p.get("item_description")[:50] + "..."
-                            if len(p.get("item_description")) > 50
-                            else p.get("item_description", "")
+                            item_desc[:50] + "..."
+                            if item_desc and len(item_desc) > 50
+                            else item_desc
                         ),
                         "Enhanced Description": (
                             (
@@ -152,14 +158,14 @@ def display_browse_data_tab():
                             if enhanced_desc
                             else "Not Processed"
                         ),
-                        "Confidence Level": p.get("confidence_level", "N/A"),
+                        "Confidence Level": p.get("confidence_level") or "N/A",
                         "Confidence Score": (
-                            f"{float(p.get('confidence_score', 0)):.2f}"
+                            f"{float(p.get('confidence_score')):.2f}"
                             if p.get("confidence_score")
                             else "N/A"
                         ),
-                        "Extracted Product": p.get("extracted_product", "N/A"),
-                        "Pass Number": p.get("last_processed_pass", "N/A"),
+                        "Extracted Product": p.get("extracted_product") or "N/A",
+                        "Pass Number": p.get("last_processed_pass") or "N/A",
                     }
                 )
 
