@@ -44,11 +44,11 @@ class ServiceFactory:
     Thread-safe and backwards compatible with existing code.
     """
 
-    _instance: Dict[str, Any] = {}
+    _instances: Dict[str, Any] = {}
     _lock: threading.Lock = threading.Lock()
 
     @classmethod
-    def get_databse(cls, db_path: Optional[Path] = None) -> ProductDatabase:
+    def get_database(cls, db_path: Optional[Path] = None) -> ProductDatabase:
         """
         Get or create ProductDatabase instance with path-aware caching
 

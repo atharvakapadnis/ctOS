@@ -39,14 +39,20 @@ class BatchProcessor:
             hts_service: HTSContextService instance (Service 2)
             openai_client: OpenAIClinet instance
         """
-        self.db = db or ProductDatabase()
-        self.hts_service = hts_service or HTSContextService()
-        self.openai_client = openai_client or OpenAIClient()
+        from ..common.service_factory import ServiceFactory
+
+        # User ServiceFactory if instances not privuded
+        self.db = db or ServiceFactory.get_database()
+        self.hts_service = hts_service or ServiceFactory.get_hts_service()
+        self.openai_client = openai_client or ServiceFactory.get_openai_client()
 
         self.prompt_builder = PromptBuilder(SYSTEM_PROMPT)
         self.response_parser = ResponseParser()
 
-        logger.info("BatchProcessor initialized with services 1 and 2")
+        # Add HTS Context batch cache
+        self._hts_context_cache: Dict[str, Dict] = {}
+
+        logger.info("BatchProcessor initialized with services")
 
     def process_batch(
         self,
@@ -66,6 +72,10 @@ class BatchProcessor:
         Returns:
             BatchResult containing processing statistics and results
         """
+        # Clears HTS Context cache at the start of each batch
+        self._hts_context_cache.clear()
+        logger.debug(f"[HTSCache] HTS Context cache cleared for new batch")
+
         logger.info(f"Starting Pass {pass_number} batch processing (size={batch_size})")
 
         # Step 1: Load products
@@ -171,6 +181,20 @@ class BatchProcessor:
         )
         logger.info(f"Confidence distribution: {confidence_distribution}")
 
+        # HTS Cache stats logging
+        total_products = len(products)
+        unique_hts_codes = len(self._hts_context_cache)
+        cache_hits = total_products - unique_hts_codes if total_products > 0 else 0
+        cache_hit_rate = (
+            (cache_hits / total_products * 100) if total_products > 0 else 0
+        )
+
+        logger.info(
+            f"[HTSCache] Batch processing complete: {total_products} products, "
+            f"{unique_hts_codes} unique HTS codes, "
+            f"{cache_hit_rate:.1f}% cache hit rate"
+        )
+
         return batch_result
 
     def _load_products(
@@ -231,28 +255,6 @@ class BatchProcessor:
             logger.error(f"Invalid pass number: {pass_number}")
             return []
 
-    # def _load_products(
-    #     self, batch_size: int, pass_number: int, selected_item_ids: Optional[List[str]]
-    # ) -> List[Any]:
-    #     """Load products based on pass number"""
-    #     if pass_number == 1:
-    #         # Pass 1: Get unprocessed products
-    #         products = self.db.get_unprocessed_products(limit=batch_size)
-    #         logger.info(f"Loaded {len(products)} unprocessed products")
-    #         return products
-    #     else:
-    #         # Pass 2+: Get selected products by ID
-    #         if not selected_item_ids:
-    #             raise ValueError("Pass 2+ requires selected_item_ids")
-
-    #         products = []
-    #         for item_id in selected_item_ids[:batch_size]:
-    #             product = self.db.get_product_by_id(item_id)
-    #             if product:
-    #                 products.append(product)
-    #         logger.info(f"Loaded {len(products)} selected products for reprocessing")
-    #         return products
-
     def _load_rules(
         self, pass_number: int, selected_rule_ids: Optional[List[str]] = None
     ) -> List:
@@ -271,9 +273,9 @@ class BatchProcessor:
             return []
 
         try:
-            from src.services.rules import RuleManager
+            from ..common.service_factory import ServiceFactory
 
-            rule_manager = RuleManager()
+            rule_manager = ServiceFactory.get_rule_manager()
 
             if selected_rule_ids:
                 # Load only user selected rules (from checkbox selection)
@@ -294,12 +296,39 @@ class BatchProcessor:
             return []
 
     def _get_hts_context(self, product: Any) -> Optional[Dict]:
-        """Get HTS context for a product"""
+        """
+        Get HTS Context for product with batch-level caching
+
+        Caches HTS Context for product with batch-level caching
+
+        Caches HTS Context by code to avoid redundant lookups within batch.
+        Typical batch: 100 products, 15 unique HTS codes = 85% cache hit rate.
+
+        Args:
+            product: Product object with final_hts attribute
+
+        Returns:
+            HTS context dictionary or None if failed
+        """
+        hts_code = product.final_hts
+
+        # Check cache first
+        if hts_code in self._hts_context_cache:
+            logger.debug(f"[HTSCache] Cache HIT for {hts_code}")
+            return self._hts_context_cache[hts_code]
+
+        # Cache miss - fetch from service
+        logger.debug(f"[HTSCache] Cache MISS for {hts_code} - fetching from service")
+
         try:
-            hts_context = self.hts_service.get_hts_context(product.final_hts)
+            hts_context = self.hts_service.get_hts_context(hts_code)
+
+            # Store in cache
+            self._hts_context_cache[hts_code] = hts_context
+
             return hts_context
         except Exception as e:
-            logger.error(f"Failed to get HTS context for {product.final_hts}: {e}")
+            logger.error(f"Failed to get HTS context for {hts_code}: {e}")
             return None
 
     def _update_database(self, item_id: str, db_update: Dict) -> bool:
