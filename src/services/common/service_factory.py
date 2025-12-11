@@ -180,13 +180,17 @@ class ServiceFactory:
             - Reloads rules if file changed since last access
             - Thread-safe instance creation and file checking
         """
-        cache_key = "rule_manager"
+        rules_path = rules_file or RULES_FILE
+        cache_key = f"rule_manager_{str(rules_path)}"
+        mtime_key = f"_rules_file_mtime_{str(rules_path)}"
 
         if cache_key in cls._instances:
             instance = cls._instances[cache_key]
 
-            if cls._check_rules_file_modified():
-                logger.info("[ServiceFactory] Rules file modified, reloading rules")
+            if cls._check_rules_file_modified(rules_path, mtime_key):
+                logger.info(
+                    f"[ServiceFactory] Rules file modified ({rules_path}), reloading rules"
+                )
                 instance._cache_loaded = False
                 instance.load_rules()
 
@@ -194,43 +198,52 @@ class ServiceFactory:
 
         with cls._lock:
             if cache_key not in cls._instances:
-                logger.debug("[ServiceFactory] Creating new RuleManager instance")
-                instance = RuleManager(rules_file)
+                logger.debug(
+                    f"[ServiceFactory] Creating new RuleManager instance for {rules_path}"
+                )
+                instance = RuleManager(rules_path)
                 cls._instances[cache_key] = instance
 
-                rules_path = rules_file or RULES_FILE
                 if rules_path.exists():
-                    cls._instances["_rules_file_mtime"] = rules_path.stat().st_mtime
+                    cls._instances[mtime_key] = rules_path.stat().st_mtime
 
         return cls._instances[cache_key]
 
     @classmethod
-    def reload_rules(cls) -> None:
+    def reload_rules(cls, rules_file: Optional[Path] = None) -> None:
         """
         Force reload of rules (called after CRUD operations)
 
+        Args:
+            rules_file: Path to rules JSON file (uses default RULES_FILE if None)
+
         Usage:
             ServiceFactory.reload_rules()
+            ServiceFactory.reload_rules(Path('/custom/rules.json'))
 
         Notes:
-            - Call this after creating/updating/deleting rules
+            - Call this after creating/ updating/ deleting rules
             - Forces RuleManager to reload from file
             - Updates stored file modification time
             - Safe to call even if RuleManager not yet cached
         """
-        cache_key = "rule_manager"
+        rules_path = rules_file or RULES_FILE
+        cache_key = f"rule_manager_{str(rules_path)}"
+        mtime_key = f"_rules_file_mtime_{str(rules_path)}"
 
         if cache_key not in cls._instances:
-            logger.debug("[ServiceFactory] No RuleManager instance to reload")
+            logger.debug(
+                f"[ServiceFactory] No RuleManager instances to reload for {rules_path}"
+            )
             return
 
-        logger.info("[ServiceFactory] Forcing rule reload")
+        logger.info(f"[ServiceFactory] Forcing rule reload for {rules_path}")
         instance = cls._instances[cache_key]
         instance._cache_loaded = False
         instance.load_rules()
 
-        if RULES_FILE.exists():
-            cls._instances["_rules_file_mtime"] = RULES_FILE.stat().st_mtime
+        if rules_path.exists():
+            cls._instances[mtime_key] = rules_path.stat().st_mtime
 
     @classmethod
     def clear_cache(cls) -> None:
@@ -281,37 +294,48 @@ class ServiceFactory:
                 for k in cls._instances.keys()
                 if k.startswith("database_")
             ],
+            "rule_manager_paths": [
+                k.replace("rule_manager_", "")
+                for k in cls._instances.keys()
+                if k.startswith("rule_manager_")
+            ],
             "has_hts_service": "hts_service" in cls._instances,
-            "has_rule_manager": "rule_manager" in cls._instances,
+            "has_rule_manager": any(
+                k.startswith("rule_manager_") for k in cls._instances.keys()
+            ),
             "has_openai_client": "openai_client" in cls._instances,
         }
 
         return stats
 
     @classmethod
-    def _check_rules_file_modified(cls) -> bool:
+    def _check_rules_file_modified(cls, rules_path: Path, mtime_key: str) -> bool:
         """
-        Check if rules.json file has been modified since last load
+        Check if rules file has been modified since last load
+
+        Args:
+            rules_path: Path to the rules file to check
+            mtime_key: Key to stored modification time in cache
 
         Returns:
             True if file was modified, False otherwise
 
         Notes:
-            - Used current file mtime with stored mtime
+            - Compares current file mtime with stored mtime
             - Updates stored mtime if file changed
             - Returns False if file doesn't exist or no stored mtime
         """
-        if not RULES_FILE.exists():
+        if not rules_path.exists():
             return False
 
-        stored_mtime = cls._instances.get("_rules_file_mtime")
+        stored_mtime = cls._instances.get(mtime_key)
         if stored_mtime is None:
             return False
 
-        current_mtime = RULES_FILE.stat().st_mtime
+        current_mtime = rules_path.stat().st_mtime
 
         if current_mtime != stored_mtime:
-            cls._instances["_rules_file_mtime"] = current_mtime
+            cls._instances[mtime_key] = current_mtime
             return True
 
         return False
