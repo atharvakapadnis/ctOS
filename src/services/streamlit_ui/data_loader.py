@@ -17,8 +17,15 @@ from src.services.ingestion.models import ProductWithProcessing, DatabaseStatist
 
 @st.cache_resource
 def get_database():
-    """Get database instance with caching"""
-    return ProductDatabase()
+    """
+    Get database instance with Streamlit caching
+
+    Uses ServiceFactory internally for consistency with non-Streamlit code.
+    Streamlits @st.cache_resource provides UI level caching.
+    """
+    from ..common.service_factory import ServiceFactory
+
+    return ServiceFactory.get_database()
 
 
 @st.cache_data(ttl=10)

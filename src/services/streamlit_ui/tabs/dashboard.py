@@ -4,7 +4,9 @@ Dashboard Tab - Database Statistics and System Overview
 
 import streamlit as st
 from pathlib import Path
+from ...common.service_factory import ServiceFactory
 import sys
+import time
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -119,6 +121,65 @@ def display_dashboard_tab():
         with col2:
             timestamp = stats.get("timestamp", "Unknown")
             st.caption(f"Last updated: {timestamp}")
+
+        st.markdown("---")
+
+        # Section E: System Actions
+        st.markdown("#### System Actions")
+        st.caption("Administrative tools for cache management and troubleshooting")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("Clear All Caches", type="secondary", width="stretch"):
+                try:
+                    # Clear ServiceFactory Cache
+                    ServiceFactory.clear_cache()
+
+                    # Clear Streamlit Cache
+                    st.cache_data.clear()
+                    st.cache_resource.clear()
+
+                    st.success("All caches cleared successfully!")
+                    st.info("Page will reload to apply changes...")
+
+                    # Wait briefly for user to see message
+                    time.sleep(1)
+
+                    # Reload page
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Failed to clear caches: {str(e)}")
+
+        with col2:
+            if st.button("Realod Rules", type="secondary", width="stretch"):
+                try:
+
+                    # Reload Rules
+                    ServiceFactory.reload_rules()
+
+                    st.success("Rules reloaded successfully!")
+
+                    # Wait Briefly
+                    time.sleep(0.5)
+
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"Failed to reload rules: {str(e)}")
+
+        # Show cache statistics (for developers/ debugging)
+        with st.expander("Cache Statistics (Debug Info)"):
+            try:
+                stats = ServiceFactory.get_cache_stats()
+                st.json(stats)
+                st.caption(
+                    "Cached instances are reused across operations to improve performance."
+                )
+
+            except Exception as e:
+                st.error(f"Failed to get cache statistics: {str(e)}")
 
     except Exception as e:
         st.error(f"Error loading statistics: {str(e)}")

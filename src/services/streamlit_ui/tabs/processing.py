@@ -589,7 +589,9 @@ def display_pass2_section():
     st.markdown("#### Step 2.5: Select Rules (Optional)")
 
     try:
-        rule_manager = RuleManager()
+        from ...common.service_factory import ServiceFactory
+
+        rule_manager = ServiceFactory.get_rule_manager()
         all_rules = rule_manager.load_rules()
 
         # Convert Rule objects to dictionaries
