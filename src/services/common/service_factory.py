@@ -67,20 +67,21 @@ class ServiceFactory:
             - Same path always returns same instance
             - Thread-safe instance creation
         """
-        cache_key = f"database_{str(db_path or DATABASE_PATH)}"
+        resolved_path = db_path or DATABASE_PATH
+        cache_key = f"database_{str(resolved_path)}"
 
         if cache_key in cls._instances:
             logger.debug(
-                f"[ServiceFactory] Returning cached database instance for {db_path or DATABASE_PATH}"
+                f"[ServiceFactory] Returning cached database instance for {resolved_path}"
             )
             return cls._instances[cache_key]
 
         with cls._lock:
             if cache_key not in cls._instances:
                 logger.debug(
-                    f"[ServiceFactory] Creating new database instance for {db_path or DATABASE_PATH}"
+                    f"[ServiceFactory] Creating new database instance for {resolved_path}"
                 )
-                cls._instances[cache_key] = ProductDatabase(db_path)
+                cls._instances[cache_key] = ProductDatabase(resolved_path)
 
         return cls._instances[cache_key]
 
@@ -104,19 +105,24 @@ class ServiceFactory:
             - 100-200ms saved on subsequent calls
             - Thread-safe instance creation
         """
-        cache_key = "hts_service"
+        resolved_path = hts_file_path or HTS_REFERENCE_PATH
+        cache_key = f"hts_service_{str(resolved_path)}"
 
         if cache_key in cls._instances:
-            logger.debug("[ServiceFactory] Returning cached HTS service instance")
+            logger.debug(
+                f"[ServiceFactory] Returning cached HTS service instance for {resolved_path}"
+            )
             return cls._instances[cache_key]
 
         with cls._lock:
             if cache_key not in cls._instances:
-                logger.info(
-                    "[ServiceFactory] Creating new HTS service instance (loading HTS data...)"
+                logger.debug(
+                    f"[ServiceFactory] Creating new HTS service instance (loading HTS data from {resolved_path}...)"
                 )
                 cls._instances[cache_key] = HTSContextService(hts_file_path)
-                logger.info("[ServiceFactory] HTS service initialized suvvessfully")
+                logger.info(
+                    f"[ServiceFactory] HTS service initialized successfully for {resolved_path}"
+                )
 
         return cls._instances[cache_key]
 
@@ -294,12 +300,19 @@ class ServiceFactory:
                 for k in cls._instances.keys()
                 if k.startswith("database_")
             ],
+            "hts_service_paths": [
+                k.replace("hts_service_", "")
+                for k in cls._instances.keys()
+                if k.startswith("hts_service_")
+            ],
             "rule_manager_paths": [
                 k.replace("rule_manager_", "")
                 for k in cls._instances.keys()
                 if k.startswith("rule_manager_")
             ],
-            "has_hts_service": "hts_service" in cls._instances,
+            "has_hts_service": any(
+                k.startswith("hts_service_") for k in cls._instances.keys()
+            ),
             "has_rule_manager": any(
                 k.startswith("rule_manager_") for k in cls._instances.keys()
             ),
