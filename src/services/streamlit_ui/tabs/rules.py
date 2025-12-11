@@ -4,6 +4,7 @@ Rules Tab - CRUD Operations for Rules Management
 
 import streamlit as st
 from pathlib import Path
+from ...common.service_factory import ServiceFactory
 import sys
 
 # Add project root to path
@@ -24,7 +25,7 @@ def display_rules_tab():
     stats = {"total_rules": 0, "active_rules": 0, "inactive_rules": 0}
 
     try:
-        rule_manager = RuleManager()
+        rule_manager = ServiceFactory.get_rule_manager()
 
         # Initialize session state for rules CRUD
         initialize_rules_crud_session_state()
@@ -133,6 +134,7 @@ def display_rules_tab():
                             list(st.session_state.rules_crud_selected)
                         )
                         if result["success"]:
+                            ServiceFactory.reload_rules()
                             st.success(result["message"])
                             if result["not_found"]:
                                 st.warning(
@@ -171,6 +173,7 @@ def display_rules_tab():
                         selected_id
                     )
                     if success:
+                        ServiceFactory.reload_rules()
                         st.success(f"{message}")
                         st.session_state.rules_crud_selected = set()
                         st.rerun()
@@ -280,6 +283,7 @@ def display_create_form(rule_manager):
                 success, message, created_rule = rule_manager.add_rule(new_rule)
 
                 if success:
+                    ServiceFactory.reload_rules()
                     st.success(message)
                     st.session_state.show_create_form = False
                     st.rerun()
@@ -366,6 +370,7 @@ def display_edit_form(rule_manager):
                 )
 
                 if success:
+                    ServiceFactory.reload_rules()
                     st.success(message)
                     st.session_state.show_edit_form = False
                     st.session_state.editing_rule_id = None
