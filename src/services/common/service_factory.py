@@ -273,7 +273,7 @@ class ServiceFactory:
 
     @classmethod
     def get_cache_stats(cls) -> Dict[str, Any]:
-        f"""
+        """
         Get Statistics about cached instances (for debugging/ monitoring)
 
         Returns:
