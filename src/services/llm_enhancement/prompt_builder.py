@@ -52,13 +52,19 @@ class PromptBuilder:
         if product.product_group:
             prompt_parts.append(f"Product Group: {product.product_group}")
 
-        # HTS Context
-        if hts_context and hts_context.get("found"):
-            hierarchy_text = self._format_hts_hierarchy(
-                hts_context.get("hierarchy_path", [])
-            )
-            if hierarchy_text:
-                prompt_parts.append(f"\nHTS Classification Context:\n{hierarchy_text}")
+        # Add HTS code if available
+        if hasattr(product, "final_hts") and product.final_hts:
+            prompt_parts.append(f"HTS Code: {product.final_hts}")
+
+        # HTS Contect
+        if hts_context:
+            # Check if found key exists and is True, or if hierarchy_path exists
+            if hts_context.get("found") or hts_context.get("hierarchy_path"):
+                hierarchy_text = self._format_hts_hierarchy(
+                    hts_context.get("hierarchy_path", [])
+                )
+                if hierarchy_text:
+                    prompt_parts.append(f"\n{hierarchy_text}")
 
         # Rules
         if rules:
@@ -85,9 +91,18 @@ class PromptBuilder:
         rules_lines = ["Rules to Apply:"]
 
         for rule in rules:
-            # Access rule object attributes diectly
-            rule_id = rule.rule_id
-            rule_content = rule.rule_content
+            # Handle both Rule objects and dictionaries
+            if hasattr(rule, "rule_id"):
+                rule_id = rule.rule_id
+                rule_content = rule.rule_content
+            elif isinstance(rule, dict):
+                # Dictionary
+                rule_id = rule.get("rule_id", "UNKNOWN")
+                rule_content = rule.get("rule_content", "")
+            else:
+                logger.warning(f"Unknown rule type: {type(rule)}")
+                continue
+
             rules_lines.append(f"- [{rule_id}] {rule_content}")
 
         logger.debug(f"Formatted {len(rules)} rules")
@@ -107,7 +122,7 @@ class PromptBuilder:
             logger.debug("No HTS hierarchy path provided")
             return ""
 
-        hts_lines = ["HTS Classification Context"]
+        hts_lines = ["HTS Classification Context:"]
 
         for level in hierarchy_path:
             # Each levle is a dictionary with 'indent', 'code', 'description'
