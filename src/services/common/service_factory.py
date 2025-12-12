@@ -116,13 +116,9 @@ class ServiceFactory:
 
         with cls._lock:
             if cache_key not in cls._instances:
-                logger.debug(
-                    f"[ServiceFactory] Creating new HTS service instance (loading HTS data from {resolved_path}...)"
-                )
-                cls._instances[cache_key] = HTSContextService(hts_file_path)
-                logger.info(
-                    f"[ServiceFactory] HTS service initialized successfully for {resolved_path}"
-                )
+                logger.info(f"[ServiceFactory] Creating new HTS service instance (loading HTS data from {resolved_path}...)")
+                cls._instances[cache_key] = HTSContextService(resolved_path)
+                logger.info(f"[ServiceFactory] HTS service initialized successfully for {resolved_path}")
 
         return cls._instances[cache_key]
 
