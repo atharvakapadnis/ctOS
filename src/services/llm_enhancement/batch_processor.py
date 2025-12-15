@@ -18,6 +18,7 @@ from .config import BATCH_SIZE_DEFAULT, SYSTEM_PROMPT
 from ..ingestion.database import ProductDatabase
 from ..ingestion.models import UpdateProcessingInput
 from ..hts_context.service import HTSContextService
+from ..common.service_factory import ServiceFactory
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,7 @@ class BatchProcessor:
             hts_service: HTSContextService instance (Service 2)
             openai_client: OpenAIClinet instance
         """
-        from ..common.service_factory import ServiceFactory
-
-        # User ServiceFactory if instances not privuded
+        # Use ServiceFactory if instances not provided
         self.db = db or ServiceFactory.get_database()
         self.hts_service = hts_service or ServiceFactory.get_hts_service()
         self.openai_client = openai_client or ServiceFactory.get_openai_client()
@@ -51,6 +50,10 @@ class BatchProcessor:
 
         # Add HTS Context batch cache
         self._hts_context_cache: Dict[str, Dict] = {}
+
+        # Add cache statistics tracking
+        self._cache_hits: int = 0
+        self._cache_misses: int = 0
 
         logger.info("BatchProcessor initialized with services")
 
@@ -74,6 +77,8 @@ class BatchProcessor:
         """
         # Clears HTS Context cache at the start of each batch
         self._hts_context_cache.clear()
+        self._cache_hits = 0
+        self._cache_misses = 0
         logger.debug(f"[HTSCache] HTS Context cache cleared for new batch")
 
         logger.info(f"Starting Pass {pass_number} batch processing (size={batch_size})")
@@ -183,15 +188,18 @@ class BatchProcessor:
 
         # HTS Cache stats logging
         total_products = len(products)
+        total_lookups = self._cache_hits + self._cache_misses
         unique_hts_codes = len(self._hts_context_cache)
-        cache_hits = total_products - unique_hts_codes if total_products > 0 else 0
+
+        # Calculate accurate cache hit rate
         cache_hit_rate = (
-            (cache_hits / total_products * 100) if total_products > 0 else 0
+            (self._cache_hits / total_lookups * 100) if total_lookups > 0 else 0
         )
 
         logger.info(
             f"[HTSCache] Batch processing complete: {total_products} products, "
-            f"{unique_hts_codes} unique HTS codes, "
+            f"{total_lookups} HTS lookups ({self._cache_hits} hits, {self._cache_misses} misses), "
+            f"{unique_hts_codes} unique codes cached, "
             f"{cache_hit_rate:.1f}% cache hit rate"
         )
 
@@ -299,32 +307,43 @@ class BatchProcessor:
         """
         Get HTS Context for product with batch-level caching
 
-        Caches HTS Context for product with batch-level caching
-
-        Caches HTS Context by code to avoid redundant lookups within batch.
-        Typical batch: 100 products, 15 unique HTS codes = 85% cache hit rate.
+        Caches HTS context by code to avoid redundant lookups within batch.
+        Tracks actual cache hits and misses for accurate performance metrics.
 
         Args:
             product: Product object with final_hts attribute
 
         Returns:
-            HTS context dictionary or None if failed
+            HTS context dictionary or None if failed or invalid
         """
+        # Validate product has final_hts attribute and its not empty
+        if not hasattr(product, "final_hts") or not product.final_hts:
+            logger.warning(f"Product missing or empty final_hts attribute")
+            return None
+
         hts_code = product.final_hts
 
         # Check cache first
         if hts_code in self._hts_context_cache:
+            self._cache_hits += 1
             logger.debug(f"[HTSCache] Cache HIT for {hts_code}")
             return self._hts_context_cache[hts_code]
 
         # Cache miss - fetch from service
+        self._cache_misses += 1
         logger.debug(f"[HTSCache] Cache MISS for {hts_code} - fetching from service")
 
         try:
             hts_context = self.hts_service.get_hts_context(hts_code)
 
-            # Store in cache
-            self._hts_context_cache[hts_code] = hts_context
+            # Only cache if successful (not None)
+            if hts_context is not None:
+                self._hts_context_cache[hts_code] = hts_context
+                logger.debug(f"[HTSCache] Cached context for {hts_code}")
+            else:
+                logger.warning(
+                    f"[HTSCache] Failed to fetch context for {hts_code}, not caching"
+                )
 
             return hts_context
         except Exception as e:
