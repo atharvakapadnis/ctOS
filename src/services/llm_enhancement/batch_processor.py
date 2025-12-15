@@ -18,7 +18,6 @@ from .config import BATCH_SIZE_DEFAULT, SYSTEM_PROMPT
 from ..ingestion.database import ProductDatabase
 from ..ingestion.models import UpdateProcessingInput
 from ..hts_context.service import HTSContextService
-from ..common.service_factory import ServiceFactory
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +39,8 @@ class BatchProcessor:
             hts_service: HTSContextService instance (Service 2)
             openai_client: OpenAIClinet instance
         """
+        from ..common.service_factory import ServiceFactory
+
         # Use ServiceFactory if instances not provided
         self.db = db or ServiceFactory.get_database()
         self.hts_service = hts_service or ServiceFactory.get_hts_service()
