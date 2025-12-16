@@ -9,8 +9,6 @@ Measures:
 
 Run with: python scripts/benchmark_caching.py
 """
-
-from re import I
 import time
 import sys
 import psutil
@@ -41,7 +39,7 @@ class BenchmarkRunner:
         """Get current process memory usage in MB"""
         return self.process.memory_info().rss / 1024 / 1024
 
-    def benchamark_database_caching(self) -> Dict[str, Any]:
+    def benchmark_database_caching(self) -> Dict[str, Any]:
         """Benchmark database instantiation with/ without caching"""
         print("\n" + "=" * 80)
         print("BENCHMARK 1: Database Interaction")
