@@ -47,4 +47,6 @@ exec streamlit run streamlit_app.py \
     --server.port=$STREAMLIT_SERVER_PORT \
     --server.address=$STREAMLIT_SERVER_ADDRESS \
     --server.enable_cors=$STREAMLIT_SERVER_ENABLE_CORS \
-    --server.enable_xsrf_protection=$STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION
+    --server.enable_xsrf_protection=$STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION \
+    --server.sslCertFile=$STREAMLIT_SERVER_SSL_CERT_FILE \
+    --server.sslKeyFile=$STREAMLIT_SERVER_SSL_KEY_FILE

@@ -1,16 +1,15 @@
 """
 Demo Data Generation Script
-Created demo_seed.db with 250 random prodycts from production database
+Creates demo_seed.db with 250 random products from production database
 """
 
-from ntpath import samefile
 import sqlite3
 import sys
 from pathlib import Path
 import logging
 from datetime import datetime
 
-# Add prohect root to the path
+# Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
@@ -49,11 +48,11 @@ def create_demo_database():
     prod_cursor.execute(f"SELECT COUNT(*) FROM {PRODUCTS_TABLE}")
     total_products = prod_cursor.fetchone()[0]
 
-    logger.info(f"Total prodcuts in production: {total_products}")
+    logger.info(f"Total products in production: {total_products}")
 
     if total_products < 250:
         logger.warning(
-            f"Less than 250 products available. Using all {total_products} products"
+            f"Less than 250 products available. Using all {total_products} products."
         )
         sample_size = total_products
     else:
@@ -70,9 +69,9 @@ def create_demo_database():
     )
 
     products = prod_cursor.fetchall()
-    product_ids = [p[0] for p in products]  # item_id is the first column
+    product_ids = [p[0] for p in products]  # item_id is first column
 
-    # Get column names
+    # Get column names for products table
     prod_cursor.execute(f"PRAGMA table_info({PRODUCTS_TABLE})")
     product_columns = [col[1] for col in prod_cursor.fetchall()]
 
@@ -91,27 +90,51 @@ def create_demo_database():
     )
     create_products_sql = prod_cursor.fetchone()[0]
     demo_cursor.execute(create_products_sql)
+    logger.info(f"  Products table created")
 
-    # Create processing results table schema
+    # Create processing_results table schema
+    logger.info("Creating processing_results table schema...")
+    prod_cursor.execute(
+        f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{PROCESSING_TABLE}'"
+    )
+    processing_result = prod_cursor.fetchone()
+
+    if processing_result is None:
+        logger.error(
+            f"ERROR: {PROCESSING_TABLE} table not found in production database"
+        )
+        demo_conn.close()
+        prod_conn.close()
+        sys.exit(1)
+
+    create_processing_sql = processing_result[0]
+    demo_cursor.execute(create_processing_sql)
+    logger.info(f"  Processing_results table created")
+
+    # Copy indexes for both tables
     logger.info("Creating indexes...")
     prod_cursor.execute(
-        f"SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name IN ('{PRODUCTS_TABLE}', '{PROCESSING_TABLE}')"
-    )
-    create_processing_sql = prod_cursor.fetchone()[0]
-    demo_cursor.execute(create_processing_sql)
-
-    # Copy indexes
-    logger.info("Copying indexes...")
-    prod_cursor.execute(
-        f"SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name IN ('{PRODUCTS_TABLE}', '{PROCESSING_TABLE}')"
+        f"""
+        SELECT sql FROM sqlite_master 
+        WHERE type='index' 
+        AND tbl_name IN ('{PRODUCTS_TABLE}', '{PROCESSING_TABLE}')
+        AND sql IS NOT NULL
+    """
     )
     indexes = prod_cursor.fetchall()
-    for idx_sql in indexes:
-        if idx_sql[0]:
+
+    index_count = 0
+    for idx_sql_tuple in indexes:
+        if idx_sql_tuple[0]:  # Skip None values
             try:
-                demo_cursor.execute(idx_sql[0])
-            except sqlite3.OperationalError:
-                pass  # Skip if index already exists
+                demo_cursor.execute(idx_sql_tuple[0])
+                index_count += 1
+            except sqlite3.OperationalError as e:
+                # Skip if index already exists or other non-critical errors
+                logger.debug(f"Index creation skipped: {e}")
+                pass
+
+    logger.info(f"  {index_count} indexes created")
 
     # Insert products
     logger.info(f"Inserting {len(products)} products...")
@@ -119,32 +142,37 @@ def create_demo_database():
     demo_cursor.executemany(
         f"INSERT INTO {PRODUCTS_TABLE} VALUES ({placeholders})", products
     )
+    logger.info(f"  {len(products)} products inserted")
 
-    # Reset all processing data (set to unprocessed state)
-    logger.info("Resetting processing data to unprocessed state...")
+    # Insert processing records in unprocessed state
+    logger.info("Creating processing records (unprocessed state)...")
+    inserted_count = 0
     for product_id in product_ids:
         demo_cursor.execute(
             f"""
             INSERT INTO {PROCESSING_TABLE} (
-            item_id,
-            enhanced_description,
-            confidence_score,
-            confidence_level,
-            extracted_customer_name,
-            extracted_dimensions,
-            extracted_product,
-            rules_applied,
-            last_processed_pass,
-            last_processed_at
+                item_id,
+                enhanced_description,
+                confidence_score,
+                confidence_level,
+                extracted_customer_name,
+                extracted_dimensions,
+                extracted_product,
+                rules_applied,
+                last_processed_pass,
+                last_processed_at
             ) VALUES (?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
         """,
             (product_id,),
         )
+        inserted_count += 1
 
-    # Commit and close
+    logger.info(f"  {inserted_count} processing records created")
+
+    # Commit changes
     demo_conn.commit()
 
-    # Vaccum database to optimize size
+    # Vacuum database to optimize size
     logger.info("Optimizing database size...")
     demo_cursor.execute("VACUUM")
     demo_conn.commit()
@@ -152,6 +180,9 @@ def create_demo_database():
     # Get statistics
     demo_cursor.execute(f"SELECT COUNT(*) FROM {PRODUCTS_TABLE}")
     demo_product_count = demo_cursor.fetchone()[0]
+
+    demo_cursor.execute(f"SELECT COUNT(*) FROM {PROCESSING_TABLE}")
+    demo_processing_count = demo_cursor.fetchone()[0]
 
     demo_cursor.execute(f"SELECT COUNT(DISTINCT final_hts) FROM {PRODUCTS_TABLE}")
     demo_hts_count = demo_cursor.fetchone()[0]
@@ -163,9 +194,11 @@ def create_demo_database():
     prod_conn.close()
 
     # Summary
+    logger.info("=" * 60)
     logger.info("DEMO DATABASE CREATION COMPLETED")
     logger.info("=" * 60)
-    logger.info(f"Products included: {demo_product_count}")
+    logger.info(f"Products table: {demo_product_count} records")
+    logger.info(f"Processing table: {demo_processing_count} records")
     logger.info(f"Unique HTS codes: {demo_hts_count}")
     logger.info(f"File size: {file_size_mb:.2f} MB")
     logger.info(f"Location: {demo_seed_path.absolute()}")
