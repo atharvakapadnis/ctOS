@@ -1,0 +1,52 @@
+# Git
+.git/
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Documentation
+*.md
+docs/
+
+# Tests
+tests/
+pytest.ini
+
+# Data files - don't copy into image
+*.db
+*.csv
+data/
+
+# Logs
+*.log
+logs/
+
+# Environment - will mount at runtime
+.env
+.env.*
+
+# Docker files themselves
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Scripts not needed in container
+scripts/create_demo_data.py
+scripts/setup.bat
+scripts/deploy.bat
+scripts/rollback.bat

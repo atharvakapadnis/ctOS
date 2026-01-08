@@ -1,0 +1,19 @@
+{
+  "rules": [
+    {
+      "rule_id": "R001",
+      "rule_name": "Smith Blair prompt",
+      "rule_content": "If item_id starts with \"01-\" or original description contains \"SMITH BLAIR\" then \"SMITH BLAIR\" is customer name.",
+      "rule_type": "customer",
+      "active": true,
+      "created_at": "2025-10-23T17:46:09.541739+00:00",
+      "description": "Prompting the LLM to recognize SMITH BLAIR as customer name"
+    }
+  ],
+  "metadata": {
+    "version": "1.0",
+    "last_updated": "2025-10-30T20:55:36.414277+00:00",
+    "total_rules": 1,
+    "active_rules": 1
+  }
+}

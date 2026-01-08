@@ -4,6 +4,9 @@ pydantic>=2.0.0
 python-dotenv
 openai
 
+# Web Interface
+streamlit
+
 # Testing
 pytest>=7.4.0
 pytest-cov>=4.1.0

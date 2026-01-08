@@ -2,6 +2,7 @@
 Main Streamlit Application with Tab-Based Navigation
 """
 
+import os
 import streamlit as st
 import sys
 from pathlib import Path
@@ -15,15 +16,40 @@ from .tabs.browse_data import display_browse_data_tab
 from .tabs.processing import display_processing_tab
 from .tabs.rules import display_rules_tab
 
+# Demo Mode detection
+APP_MODE = os.getenv("APP_MODE", "prod")
+IS_DEMO_MODE = APP_MODE == "demo"
+
 
 def main():
-    """Main Streamlit Application with tab navigation"""
+    """Main Streamlit Application with Tab-Based Navigation"""
+
+    # Display demo banner if in demo mode
+    if IS_DEMO_MODE:
+        st.markdown(
+            """
+            <div style="
+                background-color: #FF4B4B;
+                color: white;
+                padding: 15px;
+                text-align: center;
+                font-size: 18px;
+                font-weight: bold;
+                margin-bottom: 20px;
+                border-radius: 5px;
+            ">
+                DEMO MODE - This is a demonstration environment
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
     # App title
-    st.title("ctOS - Product Enhancement System")
+    title_prefix = "[DEMO] " if IS_DEMO_MODE else ""
+    st.title(f"{title_prefix}ctOS - Product Enhancement System")
     st.caption("AI-powered product description enhancement with HTS alignment")
 
-    # Initialize global session state
+    # Initialize gloval session state
     initialize_global_session_state()
 
     # Create tabs
