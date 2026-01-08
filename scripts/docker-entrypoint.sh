@@ -18,7 +18,7 @@ if [ "$APP_MODE" = "demo" ]; then
     echo "========================"
 
     DEMO_SEED="/app/data/demo_seed.db"
-    DEMO_DB="/app/adta/demo_products.db"
+    DEMO_DB="/app/data/demo_products.db"
 
     # Check if demo seed exists
     if [ ! -f "$DEMO_SEED" ]; then

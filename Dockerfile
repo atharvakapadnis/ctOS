@@ -32,7 +32,7 @@ EXPOSE 8501
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl --fail hhtps://localhost:8501/_stcore/health || exit 1
+    CMD curl --fail https://localhost:8501/_stcore/health || exit 1
 
 # Set entrypoint
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
