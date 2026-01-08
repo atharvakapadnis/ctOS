@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  ctos-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ctos-prod
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data/products.db:/app/data/products.db
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+      - ./ssl:/app/ssl:ro
+    environment:
+      - APP_MODE=prod
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_ENABLE_CORS=false
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=true
+      - STREAMLIT_SERVER_SSL_CERT_FILE=/app/ssl/cert.pem
+      - STREAMLIT_SERVER_SSL_KEY_FILE=/app/ssl/key.pem
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  ctos-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ctos-demo
+    ports:
+      - "8502:8501"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+      - ./ssl:/app/ssl:ro
+    environment:
+      - APP_MODE=demo
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_ENABLE_CORS=false
+      - STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=true
+      - STREAMLIT_SERVER_SSL_CERT_FILE=/app/ssl/cert.pem
+      - STREAMLIT_SERVER_SSL_KEY_FILE=/app/ssl/key.pem
+    restart: "no"

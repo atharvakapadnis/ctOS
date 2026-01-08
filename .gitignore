@@ -1,6 +1,79 @@
-*.env
-*_pycache__
-*.csv
-*.json
-*.log
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Database files - NEVER commit real data
 *.db
+data/products.db
+data/demo_products.db
+data/demo_seed.db
+
+# Data files
+*.csv
+data/input/*.csv
+data/input/*.json
+
+# Log files
+*.log
+logs/
+data/logs/
+
+# Debug files
+data/debug/
+
+# SSL certificates - server-specific, never commit
+ssl/
+*.pem
+*.crt
+*.key
+*.p12
+
+# Docker volumes
+volumes/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Backup files
+*.bak
+*.backup
+*.tmp
+
+# Keep directory structure but not contents
+!data/.gitkeep
+!data/input/.gitkeep
+!data/logs/.gitkeep
+!data/debug/.gitkeep
+!ssl/.gitkeep

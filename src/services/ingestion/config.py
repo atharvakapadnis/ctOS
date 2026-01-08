@@ -13,7 +13,16 @@ DATA_DIR = PROJECT_ROOT / "data"
 INPUT_DIR = DATA_DIR / "input"
 LOG_DIR = DATA_DIR / "logs"
 DEBUG_DIR = DATA_DIR / "debug"
+
+# Database path (override for demo mode)
 DATABASE_PATH = DATA_DIR / "products.db"
+
+# Demo mode override
+import os
+
+if os.getenv("APP_MODE") == "demo":
+    DATABASE_PATH = DATA_DIR / "demo_products.db"
+
 CSV_PATH = INPUT_DIR / "cleaned_test_ch73.csv"
 
 # Database config
